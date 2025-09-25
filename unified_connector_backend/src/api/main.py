@@ -7,6 +7,7 @@ from src.core.response import ok
 from src.connectors.registry import ConnectorRegistry
 from src.connectors.jira.router import factory as jira_factory, get_router as jira_router
 from src.connectors.confluence.router import factory as confluence_factory, get_router as confluence_router
+from src.core.observability import RequestContextMiddleware, metrics_snapshot
 
 settings = get_settings()
 logger = get_logger(__name__)
@@ -24,6 +25,7 @@ app = FastAPI(
     openapi_tags=openapi_tags,
 )
 
+# CORS: allow configured origins/methods/headers; defaults are permissive but can be tightened via env
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.api.CORS_ALLOW_ORIGINS,
@@ -32,11 +34,19 @@ app.add_middleware(
     allow_headers=settings.api.CORS_ALLOW_HEADERS,
 )
 
+# Correlation ID / request context middleware
+app.add_middleware(RequestContextMiddleware, tenant_header_name=settings.tenant.TENANT_HEADER_NAME, logger=logger)
 
-@app.get("/", summary="Health Check", tags=["Connectors"])
+
+@app.get("/", summary="Health Check", description="Health check endpoint that returns service status and environment.", tags=["Connectors"])
 def health_check():
     """Health check endpoint that returns service status and environment."""
     return ok({"message": "Healthy", "env": settings.tenant.ENV})
+
+@app.get("/_metrics", summary="Metrics (basic)", description="Basic in-process counters and accumulators for observability.", tags=["Connectors"])
+def metrics():
+    """Return basic service metrics (process-local) for quick visibility."""
+    return ok(metrics_snapshot())
 
 
 # Initialize registry and register connectors

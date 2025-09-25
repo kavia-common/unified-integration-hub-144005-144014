@@ -19,6 +19,8 @@ FastAPI backend providing a unified interface to manage integrations (Jira, Conf
 - ENCRYPTION_KEY: Symmetric key to encrypt tokens (request from operator)
 - API_TITLE, API_DESCRIPTION, API_VERSION: Optional API metadata
 - CORS_ALLOW_ORIGINS, CORS_ALLOW_METHODS, CORS_ALLOW_HEADERS: Comma-separated lists
+- LOG_LEVEL: Logging level (DEBUG, INFO, WARNING, ERROR) default INFO
+- LOG_FORMAT: 'json' (default) for structured logs or 'plain' for human-readable
 
 OAuth (stubs)
 - JIRA_CLIENT_ID, JIRA_CLIENT_SECRET, JIRA_REDIRECT_URI

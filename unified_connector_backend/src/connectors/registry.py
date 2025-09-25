@@ -10,6 +10,8 @@ from src.core.tenants import get_tenant_id
 from src.connectors.base import BaseConnector, SearchParams
 from src.core.response import ok, validation_error
 from src.core.db import tenant_collection
+from src.core.observability import increment_metric, observe_latency
+import time
 
 
 class ConnectorInfo(BaseModel):
@@ -181,8 +183,12 @@ class ConnectorRegistry:
                 except Exception:
                     return validation_error("filters must be valid JSON")
             params = SearchParams(q=q, resource_type=resource_type, page=page, per_page=per_page, filters=filters_obj)
-            # Delegate to connector for normalized response
+            # Delegate to connector for normalized response with timing
+            increment_metric("search_requests_total", 1.0)
+            _t0 = time.perf_counter()
             res = await connector.search(params)
+            _elapsed_ms = (time.perf_counter() - _t0) * 1000.0
+            observe_latency("search_latency_ms_sum", _elapsed_ms)
             return res
 
         @router.post("/{connector_id}/connect", summary="Connect", description="Connect using stored credentials (stub)")

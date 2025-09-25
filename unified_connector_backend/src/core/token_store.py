@@ -10,6 +10,7 @@ from src.core.logging import get_logger
 from src.core.models import OAuthState
 from src.core.security import encrypt_secret, decrypt_secret, compute_expiry, is_expired
 from src.core.settings import get_settings
+from src.core.observability import increment_metric, mask_secret_value
 
 logger = get_logger(__name__)
 
@@ -106,7 +107,7 @@ class TokenStore:
         async with httpx.AsyncClient(timeout=20.0) as client:
             resp = await client.post(token_url, json=data)
             if resp.status_code >= 400:
-                logger.error("Atlassian refresh failed with status %s", resp.status_code)
+                logger.error("Atlassian refresh failed with status %s", resp.status_code, extra={"http_status": resp.status_code})
                 return None
             payload = resp.json()
             new_access = payload.get("access_token")
@@ -122,5 +123,16 @@ class TokenStore:
                 refresh_token=new_refresh,
                 scope=scope,
                 expires_at=expires_at,
+            )
+            increment_metric("token_refresh_total", 1.0)
+            # Log with masked tokens to help debug without leaking secrets
+            logger.info(
+                "token_refreshed",
+                extra={
+                    "connector_id": connector_id,
+                    "scope": scope,
+                    "access_masked": mask_secret_value(new_access),
+                    "refresh_masked": mask_secret_value(new_refresh),
+                },
             )
             return new_access
