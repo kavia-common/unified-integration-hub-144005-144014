@@ -7,7 +7,7 @@ from urllib.parse import urlencode
 import httpx
 from fastapi import APIRouter, Depends
 
-from src.connectors.base import BaseConnector, OAuthLoginResponse, SearchResponse
+from src.connectors.base import BaseConnector, OAuthLoginResponse, SearchParams
 from src.core.db import tenant_collection
 from src.core.logging import get_logger
 from src.core.security import generate_csrf_state, generate_pkce, verify_csrf_state, compute_expiry
@@ -21,7 +21,7 @@ from src.core.api_models import (
     ConfluencePageCreateSuccess,
 )
 from .client import ConfluenceClient
-from .mapping import normalize_create_page
+from .mapping import normalize_create_page, normalize_search_pages
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -136,7 +136,11 @@ class ConfluenceConnector(BaseConnector):
         self.collection.delete_one({"_id": f"oauth_session::{self.id}"})
         return ok({"message": "OAuth linked"})
 
-    async def search(self, query: str) -> SearchResponse:
+    async def search(self, params: SearchParams) -> Dict[str, Any]:
+        """Search Confluence pages by query with pagination.
+        Supports cursor-based pagination via params.filters['cursor'] if provided by a previous response.
+        """
+        # Ensure valid token
         access = await self.token_store.ensure_valid_token_atlassian(
             connector_id=self.id,
             name=self.name,
@@ -146,8 +150,32 @@ class ConfluenceConnector(BaseConnector):
             redirect_uri=self.settings.oauth.CONFLUENCE_REDIRECT_URI or "",
         )
         if not access:
-            return SearchResponse(results=[])
-        return SearchResponse(results=[])
+            return auth_required_error()
+        # Require cloud id
+        doc = self.collection.find_one({"_id": self.id}) or {}
+        meta = (doc.get("meta") or {})
+        extra = (meta.get("extra") or {})
+        cloud_id = extra.get("cloud_id")
+        if not cloud_id:
+            return config_required_error("Missing Confluence cloud_id for this tenant.")
+
+        # Use upstream cursor if provided in filters
+        cursor = None
+        try:
+            if params.filters and isinstance(params.filters, dict):
+                cursor = params.filters.get("cursor")
+        except Exception:
+            cursor = None
+
+        client = ConfluenceClient(access_token=access, cloud_id=cloud_id)
+        resp = await client.search_pages(query=params.q, limit=params.per_page, cursor=cursor)
+        if resp.get("status") == "error":
+            return resp
+        body = resp.get("data") or {}
+        pages = body.get("pages", []) or body.get("results", [])
+        next_cursor = (body.get("paging") or {}).get("next_cursor") or None
+        # Normalize response into unified items/paging; expose next_cursor for clients via paging.next_cursor
+        return normalize_search_pages(pages, page=params.page, per_page=params.per_page, next_cursor=next_cursor)
 
     async def connect(self):
         access = await self.token_store.ensure_valid_token_atlassian(
