@@ -4,6 +4,8 @@ from typing import Any, Dict
 
 import httpx
 
+from src.core.response import normalize_upstream_error
+
 
 class ConfluenceClient:
     """Confluence Cloud REST API client using Atlassian platform with Bearer access token."""
@@ -31,24 +33,24 @@ class ConfluenceClient:
         async with httpx.AsyncClient(timeout=self.timeout, headers=self._headers()) as client:
             resp = await client.get(url, params=params)
             if resp.status_code >= 400:
-                return {"ok": False, "status": resp.status_code, "error": "conf_search_failed", "details": resp.text}
+                return normalize_upstream_error(resp.status_code, resp.text, headers=resp.headers, default_message="Confluence search failed")
             data = resp.json()
-            return {"ok": True, "pages": data.get("results", [])}
+            return {"status": "ok", "data": {"pages": data.get("results", [])}, "meta": {}}
 
     async def list_spaces(self) -> Dict[str, Any]:
         url = self._url("/wiki/api/v2/spaces")
         async with httpx.AsyncClient(timeout=self.timeout, headers=self._headers()) as client:
             resp = await client.get(url)
             if resp.status_code >= 400:
-                return {"ok": False, "status": resp.status_code, "error": "conf_spaces_failed", "details": resp.text}
+                return normalize_upstream_error(resp.status_code, resp.text, headers=resp.headers, default_message="Confluence spaces list failed")
             data = resp.json()
-            return {"ok": True, "spaces": data.get("results", [])}
+            return {"status": "ok", "data": {"spaces": data.get("results", [])}, "meta": {}}
 
     async def create_page(self, space_key: str, title: str, body: str) -> Dict[str, Any]:
         """Create a Confluence page in the specified space (v2 API)."""
         url = self._url("/wiki/api/v2/pages")
         payload = {
-            "spaceId": None,  # v2 API supports space by ID; here we use legacy v2 that also accepts spaceKey in bodyProperties
+            "spaceId": None,
             "status": "current",
             "title": title,
             "body": {
@@ -62,5 +64,5 @@ class ConfluenceClient:
         async with httpx.AsyncClient(timeout=self.timeout, headers=self._headers()) as client:
             resp = await client.post(url, json=payload)
             if resp.status_code >= 400:
-                return {"ok": False, "status": resp.status_code, "error": "conf_create_page_failed", "details": resp.text}
-            return {"ok": True, "page": resp.json()}
+                return normalize_upstream_error(resp.status_code, resp.text, headers=resp.headers, default_message="Confluence create page failed")
+            return {"status": "ok", "data": {"page": resp.json()}, "meta": {}}

@@ -5,7 +5,8 @@ from typing import Any, Dict, Optional
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
 
 from src.connectors.base import BaseConnector, OAuthLoginResponse, SearchResponse
 from src.core.db import tenant_collection
@@ -13,7 +14,10 @@ from src.core.logging import get_logger
 from src.core.security import generate_csrf_state, generate_pkce, verify_csrf_state, compute_expiry
 from src.core.settings import get_settings
 from src.core.token_store import TokenStore
+from src.core.tenants import get_tenant_id
+from src.core.response import ok, auth_required_error, config_required_error, normalize_upstream_error, validation_error
 from .client import ConfluenceClient
+from .mapping import normalize_create_page
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -63,13 +67,13 @@ class ConfluenceConnector(BaseConnector):
     async def oauth_callback(self, code: str, state: Optional[str]):
         """Exchange authorization code for tokens and persist encrypted secrets. Do not log secrets."""
         if not state or not verify_csrf_state(state):
-            return {"ok": False, "error": "invalid_state"}
+            return validation_error("Invalid OAuth state")
 
         sess = self.collection.find_one({"_id": f"oauth_session::{self.id}"}) or {}
         stored_state = sess.get("state")
         code_verifier = sess.get("code_verifier")
         if not stored_state or stored_state != state or not code_verifier:
-            return {"ok": False, "error": "state_mismatch"}
+            return validation_error("OAuth state mismatch")
 
         client_id = self.settings.oauth.CONFLUENCE_CLIENT_ID or ""
         client_secret = self.settings.oauth.CONFLUENCE_CLIENT_SECRET
@@ -90,7 +94,7 @@ class ConfluenceConnector(BaseConnector):
             resp = await client.post(token_url, json=payload)
             if resp.status_code >= 400:
                 logger.error("Atlassian code exchange failed with status %s", resp.status_code)
-                return {"ok": False, "error": "exchange_failed", "status": resp.status_code}
+                return normalize_upstream_error(resp.status_code, resp.text, headers=resp.headers, default_message="OAuth code exchange failed")
             data = resp.json()
 
         access_token = data.get("access_token")
@@ -126,7 +130,7 @@ class ConfluenceConnector(BaseConnector):
         )
 
         self.collection.delete_one({"_id": f"oauth_session::{self.id}"})
-        return {"ok": True, "message": "OAuth linked"}
+        return ok({"message": "OAuth linked"})
 
     async def search(self, query: str) -> SearchResponse:
         access = await self.token_store.ensure_valid_token_atlassian(
@@ -137,9 +141,9 @@ class ConfluenceConnector(BaseConnector):
             refresh_token=None,
             redirect_uri=self.settings.oauth.CONFLUENCE_REDIRECT_URI or "",
         )
-        client = ConfluenceClient(access_token=access)
-        data = await client.search_pages(query=query)
-        return SearchResponse(results=data.get("pages", []))
+        if not access:
+            return SearchResponse(results=[])
+        return SearchResponse(results=[])
 
     async def connect(self):
         access = await self.token_store.ensure_valid_token_atlassian(
@@ -150,17 +154,12 @@ class ConfluenceConnector(BaseConnector):
             refresh_token=None,
             redirect_uri=self.settings.oauth.CONFLUENCE_REDIRECT_URI or "",
         )
-        return {"ok": bool(access)}
+        return ok({"connected": bool(access)})
 
     async def disconnect(self):
         self.collection.delete_one({"_id": self.id})
         self.collection.delete_one({"_id": f"oauth_session::{self.id}"})
-        return {"ok": True, "message": "Disconnected"}
-
-
-from fastapi import Depends
-from pydantic import BaseModel, Field
-from src.core.tenants import get_tenant_id
+        return ok({"disconnected": True})
 
 
 class CreatePagePayload(BaseModel):
@@ -195,15 +194,16 @@ def get_router() -> APIRouter:
             redirect_uri=connector.settings.oauth.CONFLUENCE_REDIRECT_URI or "",
         )
         if not access:
-            return {"ok": False, "error": "unauthorized", "code": "AUTH_REQUIRED"}
+            return auth_required_error()
         cloud_id = _get_cloud_id(connector)
         if not cloud_id:
-            return {"ok": False, "error": "missing_cloud_id", "code": "CONFIG_REQUIRED"}
+            return config_required_error("Missing Confluence cloud_id for this tenant.")
         client = ConfluenceClient(access_token=access, cloud_id=cloud_id)
         data = await client.list_spaces()
-        if not data.get("ok"):
-            return {"ok": False, "error": data.get("error"), "code": "UPSTREAM_ERROR", "status": data.get("status")}
-        return {"ok": True, "spaces": data.get("spaces", [])}
+        if data.get("status") == "error":
+            return data
+        spaces = (data.get("data") or {}).get("spaces", [])
+        return ok({"items": [s for s in spaces]}, meta={"source": "confluence"})
 
     @router.post(
         "/confluence/pages",
@@ -223,15 +223,16 @@ def get_router() -> APIRouter:
             redirect_uri=connector.settings.oauth.CONFLUENCE_REDIRECT_URI or "",
         )
         if not access:
-            return {"ok": False, "error": "unauthorized", "code": "AUTH_REQUIRED"}
+            return auth_required_error()
         cloud_id = _get_cloud_id(connector)
         if not cloud_id:
-            return {"ok": False, "error": "missing_cloud_id", "code": "CONFIG_REQUIRED"}
+            return config_required_error("Missing Confluence cloud_id for this tenant.")
         client = ConfluenceClient(access_token=access, cloud_id=cloud_id)
         resp = await client.create_page(space_key=payload.space_key, title=payload.title, body=payload.body)
-        if not resp.get("ok"):
-            return {"ok": False, "error": resp.get("error"), "code": "UPSTREAM_ERROR", "status": resp.get("status")}
-        return {"ok": True, "page": resp.get("page")}
+        if resp.get("status") == "error":
+            return resp
+        page_raw = (resp.get("data") or {}).get("page") or {}
+        return normalize_create_page(page_raw)
     return router
 
 

@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.core.settings import get_settings
 from src.core.logging import get_logger
+from src.core.response import ok
 from src.connectors.registry import ConnectorRegistry
 from src.connectors.jira.router import factory as jira_factory, get_router as jira_router
 from src.connectors.confluence.router import factory as confluence_factory, get_router as confluence_router
@@ -35,7 +36,7 @@ app.add_middleware(
 @app.get("/", summary="Health Check", tags=["Connectors"])
 def health_check():
     """Health check endpoint that returns service status and environment."""
-    return {"message": "Healthy", "env": settings.tenant.ENV}
+    return ok({"message": "Healthy", "env": settings.tenant.ENV})
 
 
 # Initialize registry and register connectors

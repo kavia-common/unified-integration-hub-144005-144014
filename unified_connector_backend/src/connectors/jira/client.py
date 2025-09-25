@@ -4,6 +4,8 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from src.core.response import normalize_upstream_error
+
 
 class JiraClient:
     """Jira Cloud REST API client using Atlassian platform with Bearer access token.
@@ -37,10 +39,10 @@ class JiraClient:
         async with httpx.AsyncClient(timeout=self.timeout, headers=self._headers()) as client:
             resp = await client.get(url, params=params)
             if resp.status_code >= 400:
-                return {"ok": False, "status": resp.status_code, "error": "jira_search_failed", "details": resp.text}
+                return normalize_upstream_error(resp.status_code, resp.text, headers=resp.headers, default_message="Jira search failed")
             data = resp.json()
             issues: List[Dict[str, Any]] = data.get("issues", [])
-            return {"ok": True, "issues": issues}
+            return {"status": "ok", "data": {"issues": issues}, "meta": {}}
 
     async def list_projects(self) -> Dict[str, Any]:
         """List projects visible to the user."""
@@ -48,10 +50,10 @@ class JiraClient:
         async with httpx.AsyncClient(timeout=self.timeout, headers=self._headers()) as client:
             resp = await client.get(url)
             if resp.status_code >= 400:
-                return {"ok": False, "status": resp.status_code, "error": "jira_projects_failed", "details": resp.text}
+                return normalize_upstream_error(resp.status_code, resp.text, headers=resp.headers, default_message="Jira projects listing failed")
             data = resp.json()
             values = data.get("values", [])
-            return {"ok": True, "projects": values}
+            return {"status": "ok", "data": {"projects": values}, "meta": {}}
 
     async def create_issue(self, project_key: str, summary: str, issuetype: str = "Task", description: Optional[str] = None) -> Dict[str, Any]:
         """Create a Jira issue in the specified project."""
@@ -68,5 +70,5 @@ class JiraClient:
         async with httpx.AsyncClient(timeout=self.timeout, headers=self._headers()) as client:
             resp = await client.post(url, json=payload)
             if resp.status_code >= 400:
-                return {"ok": False, "status": resp.status_code, "error": "jira_create_issue_failed", "details": resp.text}
-            return {"ok": True, "issue": resp.json()}
+                return normalize_upstream_error(resp.status_code, resp.text, headers=resp.headers, default_message="Jira create issue failed")
+            return {"status": "ok", "data": {"issue": resp.json()}, "meta": {}}

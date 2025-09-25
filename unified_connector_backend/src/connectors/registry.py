@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from src.core.tenants import get_tenant_id
 from src.connectors.base import BaseConnector
+from src.core.response import ok, validation_error
 
 
 class ConnectorInfo(BaseModel):
@@ -55,26 +56,32 @@ class ConnectorRegistry:
 
         @router.get("", summary="List connectors", description="List all available connectors")
         def list_connectors():
-            return [c.model_dump() for c in self.list_public()]
+            return ok([c.model_dump() for c in self.list_public()])
 
         @router.get("/{connector_id}/oauth/login", summary="Start OAuth", description="Return OAuth authorization URL for a connector")
         async def oauth_login(connector_id: str, tenant_id: str = Depends(get_tenant_id), redirect_to: Optional[str] = None):
             factory = self.get_factory(connector_id)
             connector = factory(tenant_id)
             resp = await connector.oauth_login(redirect_to=redirect_to)
-            return resp.model_dump()
+            return ok(resp.model_dump())
 
         @router.get("/{connector_id}/oauth/callback", summary="OAuth callback", description="Complete OAuth flow and store credentials")
         async def oauth_callback(connector_id: str, code: str, state: Optional[str] = None, tenant_id: str = Depends(get_tenant_id)):
+            if not code:
+                return validation_error("Missing OAuth code")
             factory = self.get_factory(connector_id)
             connector = factory(tenant_id)
             return await connector.oauth_callback(code=code, state=state)
 
         @router.get("/{connector_id}/search", summary="Search", description="Search data in the connector (stub)")
         async def search(connector_id: str, q: str, tenant_id: str = Depends(get_tenant_id)):
+            if not q:
+                return validation_error("Missing search query")
             factory = self.get_factory(connector_id)
             connector = factory(tenant_id)
-            return (await connector.search(q)).model_dump()
+            # Since base connectors return SearchResponse with results list, wrap in standardized "ok"
+            sr = await connector.search(q)
+            return ok({"items": sr.results, "paging": {}}, meta={"connector": connector_id})
 
         @router.post("/{connector_id}/connect", summary="Connect", description="Connect using stored credentials (stub)")
         async def connect(connector_id: str, tenant_id: str = Depends(get_tenant_id)):

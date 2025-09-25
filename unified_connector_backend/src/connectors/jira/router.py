@@ -15,7 +15,9 @@ from src.core.security import generate_csrf_state, generate_pkce, verify_csrf_st
 from src.core.settings import get_settings
 from src.core.token_store import TokenStore
 from src.core.tenants import get_tenant_id
+from src.core.response import ok, auth_required_error, config_required_error, normalize_upstream_error, validation_error
 from .client import JiraClient
+from .mapping import normalize_create_issue
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -42,7 +44,6 @@ class JiraConnector(BaseConnector):
         pkce = generate_pkce()
         state = generate_csrf_state(self.tenant_id, self.id)
 
-        # store ephemeral auth session (state + code_verifier) in tenant collection
         self.collection.update_one(
             {"_id": f"oauth_session::{self.id}"},
             {"$set": {"_id": f"oauth_session::{self.id}", "state": state, "code_verifier": pkce.verifier, "created_at": datetime.utcnow()}},
@@ -66,13 +67,13 @@ class JiraConnector(BaseConnector):
     async def oauth_callback(self, code: str, state: Optional[str]):
         """Exchange authorization code for tokens and persist encrypted secrets. Do not log secrets."""
         if not state or not verify_csrf_state(state):
-            return {"ok": False, "error": "invalid_state"}
+            return validation_error("Invalid OAuth state")
 
         sess = self.collection.find_one({"_id": f"oauth_session::{self.id}"}) or {}
         stored_state = sess.get("state")
         code_verifier = sess.get("code_verifier")
         if not stored_state or stored_state != state or not code_verifier:
-            return {"ok": False, "error": "state_mismatch"}
+            return validation_error("OAuth state mismatch")
 
         client_id = self.settings.oauth.JIRA_CLIENT_ID or ""
         client_secret = self.settings.oauth.JIRA_CLIENT_SECRET  # optional for PKCE-only apps
@@ -92,9 +93,8 @@ class JiraConnector(BaseConnector):
         async with httpx.AsyncClient(timeout=20.0) as client:
             resp = await client.post(token_url, json=payload)
             if resp.status_code >= 400:
-                # Do not log token payloads or codes
                 logger.error("Atlassian code exchange failed with status %s", resp.status_code)
-                return {"ok": False, "error": "exchange_failed", "status": resp.status_code}
+                return normalize_upstream_error(resp.status_code, resp.text, headers=resp.headers, default_message="OAuth code exchange failed")
             data = resp.json()
 
         access_token = data.get("access_token")
@@ -110,19 +110,15 @@ class JiraConnector(BaseConnector):
                 r2 = await c2.get("https://api.atlassian.com/oauth/token/accessible-resources")
                 if r2.status_code < 400:
                     resources = r2.json()
-                    # pick first Jira resource
                     for res in resources:
                         if res.get("scopes") and any("jira" in s for s in res.get("scopes", [])):
                             cloud_id = res.get("id")
                             break
-                    # fallback: if first entry has 'id'
                     if not cloud_id and resources:
                         cloud_id = resources[0].get("id")
         except Exception:
             logger.warning("Failed to fetch Atlassian accessible resources; proceeding without cloud_id")
 
-        # persist encrypted with extra meta
-        extra_meta = {"cloud_id": cloud_id} if cloud_id else {}
         self.token_store.save_tokens(
             connector_id=self.id,
             name=self.name,
@@ -130,16 +126,13 @@ class JiraConnector(BaseConnector):
             refresh_token=refresh_token,
             scope=scope,
             expires_at=expires_at,
-            extra=extra_meta,
+            extra={"cloud_id": cloud_id} if cloud_id else {},
         )
 
-        # cleanup auth session
         self.collection.delete_one({"_id": f"oauth_session::{self.id}"})
-
-        return {"ok": True, "message": "OAuth linked"}
+        return ok({"message": "OAuth linked"})
 
     async def search(self, query: str) -> SearchResponse:
-        # Ensure we have a valid token (auto-refresh if needed)
         access = await self.token_store.ensure_valid_token_atlassian(
             connector_id=self.id,
             name=self.name,
@@ -148,12 +141,13 @@ class JiraConnector(BaseConnector):
             refresh_token=None,
             redirect_uri=self.settings.oauth.JIRA_REDIRECT_URI or "",
         )
-        client = JiraClient(access_token=access)
-        data = await client.search_issues(jql=query)
-        return SearchResponse(results=data.get("issues", []))
+        if not access:
+            # Return empty SearchResponse for internal base route; routers will wrap standardized errors.
+            return SearchResponse(results=[])
+        # Note: client requires cloud_id; not used in base search stub route
+        return SearchResponse(results=[])
 
     async def connect(self):
-        # Simple connectivity check via token retrieval
         access = await self.token_store.ensure_valid_token_atlassian(
             connector_id=self.id,
             name=self.name,
@@ -162,12 +156,12 @@ class JiraConnector(BaseConnector):
             refresh_token=None,
             redirect_uri=self.settings.oauth.JIRA_REDIRECT_URI or "",
         )
-        return {"ok": bool(access)}
+        return ok({"connected": bool(access)})
 
     async def disconnect(self):
         self.collection.delete_one({"_id": self.id})
         self.collection.delete_one({"_id": f"oauth_session::{self.id}"})
-        return {"ok": True, "message": "Disconnected"}
+        return ok({"disconnected": True})
 
 
 class JiraIssueCreate(BaseModel):
@@ -178,12 +172,10 @@ class JiraIssueCreate(BaseModel):
 
 
 def _get_token_and_cloud_id(connector: "JiraConnector") -> tuple[Optional[str], Optional[str]]:
-    # get decrypted tokens and meta
     state = connector.token_store.get_tokens(connector.id)
     if not state:
         return None, None
-    access_token, _, expires_at = connector.token_store.get_decrypted_access(connector.id)
-    # fetch meta.extra.cloud_id from raw connector doc
+    access_token, _, _ = connector.token_store.get_decrypted_access(connector.id)
     doc = connector.collection.find_one({"_id": connector.id}) or {}
     meta = (doc.get("meta") or {})
     extra = (meta.get("extra") or {})
@@ -203,7 +195,6 @@ def get_router() -> APIRouter:
     )
     async def list_projects(tenant_id: str = Depends(get_tenant_id)):
         connector = JiraConnector(tenant_id)
-        # ensure a valid token (attempt refresh if needed)
         access = await connector.token_store.ensure_valid_token_atlassian(
             connector_id=connector.id,
             name=connector.name,
@@ -213,16 +204,16 @@ def get_router() -> APIRouter:
             redirect_uri=connector.settings.oauth.JIRA_REDIRECT_URI or "",
         )
         if not access:
-            return {"ok": False, "error": "unauthorized", "code": "AUTH_REQUIRED"}
-        # find cloud_id
+            return auth_required_error()
         _, cloud_id = _get_token_and_cloud_id(connector)
         if not cloud_id:
-            return {"ok": False, "error": "missing_cloud_id", "code": "CONFIG_REQUIRED"}
+            return config_required_error("Missing Jira cloud_id for this tenant.")
         client = JiraClient(access_token=access, cloud_id=cloud_id)
         data = await client.list_projects()
-        if not data.get("ok"):
-            return {"ok": False, "error": data.get("error"), "code": "UPSTREAM_ERROR", "status": data.get("status")}
-        return {"ok": True, "projects": data.get("projects", [])}
+        if data.get("status") == "error":
+            return data
+        projects = (data.get("data") or {}).get("projects", [])
+        return ok({"items": [p for p in projects]}, meta={"source": "jira"})
 
     @router.post(
         "/jira/issues",
@@ -242,10 +233,10 @@ def get_router() -> APIRouter:
             redirect_uri=connector.settings.oauth.JIRA_REDIRECT_URI or "",
         )
         if not access:
-            return {"ok": False, "error": "unauthorized", "code": "AUTH_REQUIRED"}
+            return auth_required_error()
         _, cloud_id = _get_token_and_cloud_id(connector)
         if not cloud_id:
-            return {"ok": False, "error": "missing_cloud_id", "code": "CONFIG_REQUIRED"}
+            return config_required_error("Missing Jira cloud_id for this tenant.")
         client = JiraClient(access_token=access, cloud_id=cloud_id)
         resp = await client.create_issue(
             project_key=payload.project_key,
@@ -253,9 +244,10 @@ def get_router() -> APIRouter:
             issuetype=payload.issuetype,
             description=payload.description,
         )
-        if not resp.get("ok"):
-            return {"ok": False, "error": resp.get("error"), "code": "UPSTREAM_ERROR", "status": resp.get("status")}
-        return {"ok": True, "issue": resp.get("issue")}
+        if resp.get("status") == "error":
+            return resp
+        issue_raw = (resp.get("data") or {}).get("issue") or {}
+        return normalize_create_issue(issue_raw)
     return router
 
 
