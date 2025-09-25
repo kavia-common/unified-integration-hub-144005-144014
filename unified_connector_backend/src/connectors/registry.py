@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Any
 
 from fastapi import APIRouter, Depends, FastAPI
 from pydantic import BaseModel, Field
@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from src.core.tenants import get_tenant_id
 from src.connectors.base import BaseConnector
 from src.core.response import ok, validation_error
+from src.core.db import tenant_collection
 
 
 class ConnectorInfo(BaseModel):
@@ -16,7 +17,59 @@ class ConnectorInfo(BaseModel):
     tags: List[str] = Field(default_factory=list, description="Tags/categories")
 
 
+class ConnectorStatus(BaseModel):
+    """Per-tenant connection status fields surfaced on GET /connectors."""
+    connected: bool = Field(..., description="True if connector is linked/configured for this tenant")
+    last_refreshed: Optional[str] = Field(default=None, description="ISO timestamp when tokens/connection were last refreshed or linked")
+    last_error: Optional[str] = Field(default=None, description="Last error message observed for this connector, if any")
+    scopes: List[str] = Field(default_factory=list, description="Active scopes/permissions granted for this connection")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional connector metadata (e.g., cloud_id or extra configuration)")
+
+
+class ConnectorListItem(BaseModel):
+    id: str = Field(..., description="Connector id")
+    name: str = Field(..., description="Connector name")
+    tags: List[str] = Field(default_factory=list, description="Tags/categories")
+    status: ConnectorStatus = Field(..., description="Per-tenant connection status")
+
+
 ConnectorFactory = Callable[[str], BaseConnector]
+
+
+def _derive_status_from_doc(doc: Dict[str, Any] | None) -> ConnectorStatus:
+    """Map a stored connector document to ConnectorStatus."""
+    if not doc:
+        return ConnectorStatus(
+            connected=False,
+            last_refreshed=None,
+            last_error=None,
+            scopes=[],
+            metadata={},
+        )
+    meta = (doc.get("meta") or {})
+    oauth = (meta.get("oauth") or {})
+    # Determine connected
+    connected = (meta.get("status") == "linked") or bool(oauth.get("access_token"))
+    # Best-effort timestamps: prefer expires_at presence as indicator of recent link; otherwise last_sync_at
+    last_refreshed_val = meta.get("last_sync_at") or oauth.get("expires_at")
+    last_refreshed = None
+    if last_refreshed_val:
+        try:
+            # If it's already a datetime, FastAPI/Pydantic will convert; if string, keep as string
+            last_refreshed = str(last_refreshed_val)
+        except Exception:
+            last_refreshed = None
+    scope_str = oauth.get("scope") or ""
+    scopes = [s for s in scope_str.split(" ") if s] if isinstance(scope_str, str) else []
+    last_error = (meta.get("last_error") or None)
+    metadata = (meta.get("extra") or {})
+    return ConnectorStatus(
+        connected=connected,
+        last_refreshed=last_refreshed,
+        last_error=last_error,
+        scopes=scopes,
+        metadata=metadata,
+    )
 
 
 class ConnectorRegistry:
@@ -49,14 +102,38 @@ class ConnectorRegistry:
         """List public info about registered connectors."""
         return [ConnectorInfo(id=v["id"], name=v["name"], tags=v.get("tags", [])) for v in self._connectors.values()]  # type: ignore[call-arg]
 
+    def _list_with_status(self, tenant_id: str) -> List[ConnectorListItem]:
+        """Return connectors enriched with per-tenant connection status."""
+        # Read all relevant connector docs for this tenant once
+        col = tenant_collection(tenant_id, "connectors")
+        stored_docs = {doc.get("_id"): doc for doc in col.find({}, {"_id": 1, "meta": 1})}
+        items: List[ConnectorListItem] = []
+        for v in self._connectors.values():
+            cid = v["id"]  # type: ignore[index]
+            status = _derive_status_from_doc(stored_docs.get(cid))
+            items.append(
+                ConnectorListItem(
+                    id=cid,  # type: ignore[arg-type]
+                    name=v["name"],  # type: ignore[arg-type]
+                    tags=v.get("tags", []),  # type: ignore[arg-type]
+                    status=status,
+                )
+            )
+        return items
+
     # PUBLIC_INTERFACE
     def mount_all(self, app: FastAPI, prefix: str = "/connectors"):
         """Mount all connector routers onto the FastAPI app under a unified prefix and inject common endpoints."""
         router = APIRouter(prefix=prefix, tags=["Connectors"])
 
-        @router.get("", summary="List connectors", description="List all available connectors")
-        def list_connectors():
-            return ok([c.model_dump() for c in self.list_public()])
+        @router.get(
+            "",
+            summary="List connectors",
+            description="List all connectors merged with per-tenant connection status from stored records.",
+        )
+        def list_connectors(tenant_id: str = Depends(get_tenant_id)):
+            enriched = [c.model_dump() for c in self._list_with_status(tenant_id)]
+            return ok(enriched)
 
         @router.get("/{connector_id}/oauth/login", summary="Start OAuth", description="Return OAuth authorization URL for a connector")
         async def oauth_login(connector_id: str, tenant_id: str = Depends(get_tenant_id), redirect_to: Optional[str] = None):
