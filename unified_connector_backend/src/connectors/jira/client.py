@@ -32,28 +32,35 @@ class JiraClient:
         # Jira REST v3 base for cloud
         return f"{self.base_url}/ex/jira/{self.cloud_id}{path}"
 
-    async def search_issues(self, jql: str) -> Dict[str, Any]:
-        """Search issues using JQL."""
+    async def search_issues(self, jql: str, start_at: int = 0, max_results: int = 50) -> Dict[str, Any]:
+        """Search issues using JQL with pagination."""
         url = self._url("/rest/api/3/search")
-        params = {"jql": jql}
+        params = {"jql": jql, "startAt": start_at, "maxResults": max_results}
         async with httpx.AsyncClient(timeout=self.timeout, headers=self._headers()) as client:
             resp = await client.get(url, params=params)
             if resp.status_code >= 400:
                 return normalize_upstream_error(resp.status_code, resp.text, headers=resp.headers, default_message="Jira search failed")
             data = resp.json()
             issues: List[Dict[str, Any]] = data.get("issues", [])
-            return {"status": "ok", "data": {"issues": issues}, "meta": {}}
+            total = data.get("total")
+            start_at_out = data.get("startAt", start_at)
+            max_results_out = data.get("maxResults", max_results)
+            return {"status": "ok", "data": {"issues": issues, "paging": {"total": total, "startAt": start_at_out, "maxResults": max_results_out}}, "meta": {}}
 
-    async def list_projects(self) -> Dict[str, Any]:
-        """List projects visible to the user."""
+    async def list_projects(self, start_at: int = 0, max_results: int = 50) -> Dict[str, Any]:
+        """List projects visible to the user with pagination."""
         url = self._url("/rest/api/3/project/search")
+        params = {"startAt": start_at, "maxResults": max_results}
         async with httpx.AsyncClient(timeout=self.timeout, headers=self._headers()) as client:
-            resp = await client.get(url)
+            resp = await client.get(url, params=params)
             if resp.status_code >= 400:
                 return normalize_upstream_error(resp.status_code, resp.text, headers=resp.headers, default_message="Jira projects listing failed")
             data = resp.json()
             values = data.get("values", [])
-            return {"status": "ok", "data": {"projects": values}, "meta": {}}
+            total = data.get("total", None)
+            start_at_out = data.get("startAt", start_at)
+            max_results_out = data.get("maxResults", max_results)
+            return {"status": "ok", "data": {"projects": values, "paging": {"total": total, "startAt": start_at_out, "maxResults": max_results_out}}, "meta": {}}
 
     async def create_issue(self, project_key: str, summary: str, issuetype: str = "Task", description: Optional[str] = None) -> Dict[str, Any]:
         """Create a Jira issue in the specified project."""

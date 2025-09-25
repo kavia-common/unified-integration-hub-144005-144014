@@ -5,10 +5,10 @@ from typing import Any, Dict, Optional
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
-from src.connectors.base import BaseConnector, OAuthLoginResponse, SearchResponse
+from src.connectors.base import BaseConnector, OAuthLoginResponse, SearchParams
 from src.core.db import tenant_collection
 from src.core.logging import get_logger
 from src.core.security import generate_csrf_state, generate_pkce, verify_csrf_state, compute_expiry
@@ -17,7 +17,7 @@ from src.core.token_store import TokenStore
 from src.core.tenants import get_tenant_id
 from src.core.response import ok, auth_required_error, config_required_error, normalize_upstream_error, validation_error
 from .client import JiraClient
-from .mapping import normalize_create_issue
+from .mapping import normalize_create_issue, normalize_search_issues
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -132,7 +132,8 @@ class JiraConnector(BaseConnector):
         self.collection.delete_one({"_id": f"oauth_session::{self.id}"})
         return ok({"message": "OAuth linked"})
 
-    async def search(self, query: str) -> SearchResponse:
+    async def search(self, params: SearchParams) -> Dict[str, Any]:
+        # Ensure token
         access = await self.token_store.ensure_valid_token_atlassian(
             connector_id=self.id,
             name=self.name,
@@ -142,10 +143,40 @@ class JiraConnector(BaseConnector):
             redirect_uri=self.settings.oauth.JIRA_REDIRECT_URI or "",
         )
         if not access:
-            # Return empty SearchResponse for internal base route; routers will wrap standardized errors.
-            return SearchResponse(results=[])
-        # Note: client requires cloud_id; not used in base search stub route
-        return SearchResponse(results=[])
+            return auth_required_error()
+        # Need cloud id
+        doc = self.collection.find_one({"_id": self.id}) or {}
+        meta = (doc.get("meta") or {})
+        extra = (meta.get("extra") or {})
+        cloud_id = extra.get("cloud_id")
+        if not cloud_id:
+            return config_required_error("Missing Jira cloud_id for this tenant.")
+        client = JiraClient(access_token=access, cloud_id=cloud_id)
+
+        # Build JQL using q + filters
+        jql_parts = []
+        if params.q:
+            # Basic contains on summary or description
+            term = params.q.replace('"', '\\"')
+            jql_parts.append(f'text ~ "{term}"')
+        f = params.filters or {}
+        if f.get("projectKey"):
+            jql_parts.append(f'project = "{f.get("projectKey")}"')
+        if f.get("type"):
+            jql_parts.append(f'issuetype = "{f.get("type")}"')
+        if f.get("status"):
+            jql_parts.append(f'status = "{f.get("status")}"')
+        jql = " AND ".join(jql_parts) if jql_parts else ""
+
+        start_at = (params.page - 1) * params.per_page
+        jr = await client.search_issues(jql=jql, start_at=start_at, max_results=params.per_page)
+        if jr.get("status") == "error":
+            return jr
+        data = jr.get("data") or {}
+        issues = data.get("issues", [])
+        paging_raw = data.get("paging", {}) or {}
+        total = paging_raw.get("total")
+        return normalize_search_issues(issues, total=total, page=params.page, per_page=params.per_page)
 
     async def connect(self):
         access = await self.token_store.ensure_valid_token_atlassian(
@@ -193,7 +224,7 @@ def get_router() -> APIRouter:
         tags=["Jira"],
         responses={200: {"description": "Projects list"}, 401: {"description": "Unauthorized"}, 502: {"description": "Upstream error"}},
     )
-    async def list_projects(tenant_id: str = Depends(get_tenant_id)):
+    async def list_projects(tenant_id: str = Depends(get_tenant_id), page: int = Query(1, ge=1), per_page: int = Query(50, ge=1, le=100)):
         connector = JiraConnector(tenant_id)
         access = await connector.token_store.ensure_valid_token_atlassian(
             connector_id=connector.id,
@@ -209,11 +240,18 @@ def get_router() -> APIRouter:
         if not cloud_id:
             return config_required_error("Missing Jira cloud_id for this tenant.")
         client = JiraClient(access_token=access, cloud_id=cloud_id)
-        data = await client.list_projects()
+        start_at = (page - 1) * per_page
+        data = await client.list_projects(start_at=start_at, max_results=per_page)
         if data.get("status") == "error":
             return data
-        projects = (data.get("data") or {}).get("projects", [])
-        return ok({"items": [p for p in projects]}, meta={"source": "jira"})
+        body = data.get("data") or {}
+        projects = body.get("projects", [])
+        paging_raw = body.get("paging", {}) or {}
+        total = paging_raw.get("total")
+        # Map simple normalized structure with paging
+        next_page = page + 1 if total is not None and page * per_page < total else None
+        prev_page = page - 1 if page > 1 else None
+        return ok({"items": [p for p in projects], "paging": {"page": page, "per_page": per_page, "total": total, "next_page": next_page, "prev_page": prev_page}}, meta={"source": "jira"})
 
     @router.post(
         "/jira/issues",

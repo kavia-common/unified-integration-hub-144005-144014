@@ -15,6 +15,23 @@ class SearchResponse(BaseModel):
     results: list[dict] = Field(default_factory=list, description="Results returned from connector search")
 
 
+class Paging(BaseModel):
+    page: int = Field(1, description="Current page number (1-based)")
+    per_page: int = Field(10, description="Items per page")
+    total: Optional[int] = Field(default=None, description="Total number of items if known")
+    next_page: Optional[int] = Field(default=None, description="Next page number if available")
+    prev_page: Optional[int] = Field(default=None, description="Previous page number if available")
+
+
+class SearchParams(BaseModel):
+    """Normalized search parameters accepted by all connectors."""
+    q: str = Field(..., description="Free text query")
+    resource_type: Optional[str] = Field(default=None, description="Filter by resource type (e.g., 'issues','projects','pages','spaces')")
+    filters: Dict[str, Any] = Field(default_factory=dict, description="Connector-specific filter map (e.g., projectKey, spaceKey)")
+    page: int = Field(1, ge=1, description="Page number (1-based)")
+    per_page: int = Field(10, ge=1, le=100, description="Items per page (max 100)")
+
+
 # PUBLIC_INTERFACE
 class BaseConnector(ABC):
     """Abstract base class for all connectors."""
@@ -45,8 +62,10 @@ class BaseConnector(ABC):
 
     # PUBLIC_INTERFACE
     @abstractmethod
-    async def search(self, query: str) -> SearchResponse:
-        """Search within the connector's data domain (stub)."""
+    async def search(self, params: SearchParams) -> Dict[str, Any]:
+        """Search within the connector's data domain and return normalized paginated payload:
+        { status:'ok', data:{ items:[...], paging:{ page, per_page, total?, next_page?, prev_page? } }, meta:{...}}
+        """
         raise NotImplementedError
 
     # PUBLIC_INTERFACE

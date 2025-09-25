@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from typing import Callable, Dict, List, Optional, Any
 
-from fastapi import APIRouter, Depends, FastAPI
+from fastapi import APIRouter, Depends, FastAPI, Query
 from pydantic import BaseModel, Field
+import json
 
 from src.core.tenants import get_tenant_id
-from src.connectors.base import BaseConnector
+from src.connectors.base import BaseConnector, SearchParams
 from src.core.response import ok, validation_error
 from src.core.db import tenant_collection
 
@@ -150,15 +151,39 @@ class ConnectorRegistry:
             connector = factory(tenant_id)
             return await connector.oauth_callback(code=code, state=state)
 
-        @router.get("/{connector_id}/search", summary="Search", description="Search data in the connector (stub)")
-        async def search(connector_id: str, q: str, tenant_id: str = Depends(get_tenant_id)):
+        @router.get(
+            "/{connector_id}/search",
+            summary="Search",
+            description="Search data in the connector with pagination and filtering",
+        )
+        async def search(
+            connector_id: str,
+            q: str = Query(..., description="Search query"),
+            tenant_id: str = Depends(get_tenant_id),
+            resource_type: Optional[str] = Query(default=None, description="Filter by resource type (e.g., issues, pages)"),
+            page: int = Query(1, ge=1, description="Page number (1-based)"),
+            per_page: int = Query(10, ge=1, le=100, description="Items per page"),
+            filters: Optional[str] = Query(default=None, description="JSON object string of additional filters"),
+        ):
             if not q:
                 return validation_error("Missing search query")
             factory = self.get_factory(connector_id)
             connector = factory(tenant_id)
-            # Since base connectors return SearchResponse with results list, wrap in standardized "ok"
-            sr = await connector.search(q)
-            return ok({"items": sr.results, "paging": {}}, meta={"connector": connector_id})
+            # Parse filters JSON if provided
+            filters_obj: Dict[str, Any] = {}
+            if filters:
+                try:
+                    parsed = json.loads(filters)
+                    if isinstance(parsed, dict):
+                        filters_obj = parsed
+                    else:
+                        return validation_error("filters must be a JSON object")
+                except Exception:
+                    return validation_error("filters must be valid JSON")
+            params = SearchParams(q=q, resource_type=resource_type, page=page, per_page=per_page, filters=filters_obj)
+            # Delegate to connector for normalized response
+            res = await connector.search(params)
+            return res
 
         @router.post("/{connector_id}/connect", summary="Connect", description="Connect using stored credentials (stub)")
         async def connect(connector_id: str, tenant_id: str = Depends(get_tenant_id)):

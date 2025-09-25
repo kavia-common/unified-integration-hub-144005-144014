@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 def map_page(raw: Dict[str, Any]) -> Dict[str, Any]:
@@ -30,12 +30,16 @@ def map_space(raw: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # PUBLIC_INTERFACE
-def normalize_search_pages(raw_pages: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Normalize Confluence search pages result to unified schema:
-    { status: 'ok', data: { items: [...] } }
-    """
+def normalize_search_pages(raw_pages: List[Dict[str, Any]], page: int = 1, per_page: int = 10, next_cursor: Optional[str] = None) -> Dict[str, Any]:
+    """Normalize Confluence search pages result to unified schema with paging info."""
     items = [map_page(x) for x in raw_pages]
-    return {"status": "ok", "data": {"items": items, "paging": {}}, "meta": {}}
+    paging: Dict[str, Any] = {"page": page, "per_page": per_page}
+    if next_cursor:
+        paging["next_cursor"] = next_cursor
+        paging["next_page"] = page + 1
+    if page > 1:
+        paging["prev_page"] = page - 1
+    return {"status": "ok", "data": {"items": items, "paging": paging}, "meta": {}}
 
 
 # PUBLIC_INTERFACE

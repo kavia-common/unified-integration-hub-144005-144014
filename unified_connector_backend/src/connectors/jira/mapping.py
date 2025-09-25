@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 def map_issue(raw: Dict[str, Any]) -> Dict[str, Any]:
@@ -35,12 +35,19 @@ def map_project(raw: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # PUBLIC_INTERFACE
-def normalize_search_issues(raw_issues: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Normalize Jira search issues response into unified schema:
-    { status: 'ok', data: { items: [...], paging: { total?, next? } } }
-    """
+def normalize_search_issues(raw_issues: List[Dict[str, Any]], total: Optional[int] = None, page: int = 1, per_page: int = 10) -> Dict[str, Any]:
+    """Normalize Jira search issues response into unified schema with paging."""
     items = [map_issue(x) for x in raw_issues]
-    data = {"items": items, "paging": {}}
+    # If total known, compute prev/next
+    next_page = None
+    prev_page = None
+    if total is not None:
+        # Basic computation assuming contiguous pages
+        if page * per_page < total:
+            next_page = page + 1
+        if page > 1:
+            prev_page = page - 1
+    data = {"items": items, "paging": {"page": page, "per_page": per_page, "total": total, "next_page": next_page, "prev_page": prev_page}}
     return {"status": "ok", "data": data, "meta": {}}
 
 
