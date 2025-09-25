@@ -6,7 +6,6 @@ from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, Field
 
 from src.connectors.base import BaseConnector, OAuthLoginResponse, SearchParams
 from src.core.db import tenant_collection
@@ -16,6 +15,11 @@ from src.core.settings import get_settings
 from src.core.token_store import TokenStore
 from src.core.tenants import get_tenant_id
 from src.core.response import ok, auth_required_error, config_required_error, normalize_upstream_error, validation_error
+from src.core.api_models import (
+    GenericItemsSuccess,
+    JiraIssueCreateModel,
+    JiraIssueCreateSuccess,
+)
 from .client import JiraClient
 from .mapping import normalize_create_issue, normalize_search_issues
 
@@ -195,11 +199,7 @@ class JiraConnector(BaseConnector):
         return ok({"disconnected": True})
 
 
-class JiraIssueCreate(BaseModel):
-    project_key: str = Field(..., description="Project key (e.g., ABC)")
-    summary: str = Field(..., description="Issue summary/title")
-    issuetype: str = Field(default="Task", description="Issue type name")
-    description: Optional[str] = Field(default=None, description="Optional issue description")
+# Use shared JiraIssueCreateModel from core.api_models
 
 
 def _get_token_and_cloud_id(connector: "JiraConnector") -> tuple[Optional[str], Optional[str]]:
@@ -222,7 +222,12 @@ def get_router() -> APIRouter:
         summary="List Jira projects",
         description="List Jira projects visible to the authorized user.",
         tags=["Jira"],
-        responses={200: {"description": "Projects list"}, 401: {"description": "Unauthorized"}, 502: {"description": "Upstream error"}},
+        response_model=GenericItemsSuccess,  # type: ignore[type-arg]
+        responses={
+            200: {"description": "Projects list", "content": {"application/json": {"example": {"status": "ok", "data": {"items": [{"id": "10000", "key": "ABC", "name": "Example"}], "paging": {"page": 1, "per_page": 50, "total": 1}}, "meta": {"source": "jira"}}}}},
+            401: {"description": "Unauthorized"},
+            502: {"description": "Upstream error"},
+        },
     )
     async def list_projects(tenant_id: str = Depends(get_tenant_id), page: int = Query(1, ge=1), per_page: int = Query(50, ge=1, le=100)):
         connector = JiraConnector(tenant_id)
@@ -258,9 +263,15 @@ def get_router() -> APIRouter:
         summary="Create Jira issue",
         description="Create a Jira issue using the authorized user's token.",
         tags=["Jira"],
-        responses={200: {"description": "Issue created"}, 400: {"description": "Bad Request"}, 401: {"description": "Unauthorized"}, 502: {"description": "Upstream error"}},
+        response_model=JiraIssueCreateSuccess,  # type: ignore[type-arg]
+        responses={
+            200: {"description": "Issue created", "content": {"application/json": {"example": {"status": "ok", "data": {"id": "10001", "key": "ABC-1"}, "meta": {}}}}},
+            400: {"description": "Bad Request"},
+            401: {"description": "Unauthorized"},
+            502: {"description": "Upstream error"},
+        },
     )
-    async def create_issue(payload: JiraIssueCreate, tenant_id: str = Depends(get_tenant_id)):
+    async def create_issue(payload: JiraIssueCreateModel, tenant_id: str = Depends(get_tenant_id)):
         connector = JiraConnector(tenant_id)
         access = await connector.token_store.ensure_valid_token_atlassian(
             connector_id=connector.id,

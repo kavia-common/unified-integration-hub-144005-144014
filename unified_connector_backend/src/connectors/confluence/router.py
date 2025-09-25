@@ -6,7 +6,6 @@ from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field
 
 from src.connectors.base import BaseConnector, OAuthLoginResponse, SearchResponse
 from src.core.db import tenant_collection
@@ -16,6 +15,11 @@ from src.core.settings import get_settings
 from src.core.token_store import TokenStore
 from src.core.tenants import get_tenant_id
 from src.core.response import ok, auth_required_error, config_required_error, normalize_upstream_error, validation_error
+from src.core.api_models import (
+    GenericItemsSuccess,
+    ConfluenceCreatePageModel,
+    ConfluencePageCreateSuccess,
+)
 from .client import ConfluenceClient
 from .mapping import normalize_create_page
 
@@ -162,10 +166,7 @@ class ConfluenceConnector(BaseConnector):
         return ok({"disconnected": True})
 
 
-class CreatePagePayload(BaseModel):
-    space_key: str = Field(..., description="Confluence space key")
-    title: str = Field(..., description="Page title")
-    body: str = Field(..., description="Page body in storage representation")
+# Use shared ConfluenceCreatePageModel from core.api_models
 
 
 def _get_cloud_id(connector: "ConfluenceConnector") -> Optional[str]:
@@ -181,7 +182,12 @@ def get_router() -> APIRouter:
         summary="List Confluence spaces",
         description="List Confluence spaces accessible to the user.",
         tags=["Confluence"],
-        responses={200: {"description": "Spaces list"}, 401: {"description": "Unauthorized"}, 502: {"description": "Upstream error"}},
+        response_model=GenericItemsSuccess,  # type: ignore[type-arg]
+        responses={
+            200: {"description": "Spaces list", "content": {"application/json": {"example": {"status": "ok", "data": {"items": [{"id": "42", "key": "ENG", "name": "Engineering"}], "paging": {"page": 1, "per_page": 10}}, "meta": {"source": "confluence"}}}}},
+            401: {"description": "Unauthorized"},
+            502: {"description": "Upstream error"},
+        },
     )
     async def list_spaces(tenant_id: str = Depends(get_tenant_id)):
         connector = ConfluenceConnector(tenant_id)
@@ -210,9 +216,15 @@ def get_router() -> APIRouter:
         summary="Create Confluence page",
         description="Create a Confluence page in a space.",
         tags=["Confluence"],
-        responses={200: {"description": "Page created"}, 401: {"description": "Unauthorized"}, 400: {"description": "Bad Request"}, 502: {"description": "Upstream error"}},
+        response_model=ConfluencePageCreateSuccess,  # type: ignore[type-arg]
+        responses={
+            200: {"description": "Page created", "content": {"application/json": {"example": {"status": "ok", "data": {"id": "12345", "title": "New Page"}, "meta": {}}}}},
+            401: {"description": "Unauthorized"},
+            400: {"description": "Bad Request"},
+            502: {"description": "Upstream error"},
+        },
     )
-    async def create_page(payload: CreatePagePayload, tenant_id: str = Depends(get_tenant_id)):
+    async def create_page(payload: ConfluenceCreatePageModel, tenant_id: str = Depends(get_tenant_id)):
         connector = ConfluenceConnector(tenant_id)
         access = await connector.token_store.ensure_valid_token_atlassian(
             connector_id=connector.id,

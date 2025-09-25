@@ -11,6 +11,12 @@ from src.connectors.base import BaseConnector, SearchParams
 from src.core.response import ok, validation_error
 from src.core.db import tenant_collection
 from src.core.observability import increment_metric, observe_latency
+from src.core.api_models import (
+    ConnectorListSuccess,
+    OAuthLoginSuccess,
+    GenericItemsSuccess,
+    ConnectDisconnectSuccess,
+)
 import time
 
 
@@ -133,19 +139,71 @@ class ConnectorRegistry:
             "",
             summary="List connectors",
             description="List all connectors merged with per-tenant connection status from stored records.",
+            response_model=ConnectorListSuccess,  # type: ignore[type-arg]
+            responses={
+                200: {
+                    "description": "Connectors listed",
+                    "content": {
+                        "application/json": {
+                            "example": {
+                                "status": "ok",
+                                "data": [
+                                    {
+                                        "id": "jira",
+                                        "name": "Jira",
+                                        "tags": ["SaaS"],
+                                        "status": {"connected": False, "last_refreshed": None, "last_error": None, "scopes": [], "metadata": {}},
+                                    }
+                                ],
+                                "meta": {},
+                            }
+                        }
+                    },
+                },
+                422: {"description": "Validation Error"},
+            },
         )
         def list_connectors(tenant_id: str = Depends(get_tenant_id)):
             enriched = [c.model_dump() for c in self._list_with_status(tenant_id)]
             return ok(enriched)
 
-        @router.get("/{connector_id}/oauth/login", summary="Start OAuth", description="Return OAuth authorization URL for a connector")
+        @router.get(
+            "/{connector_id}/oauth/login",
+            summary="Start OAuth",
+            description="Return OAuth authorization URL for a connector",
+            response_model=OAuthLoginSuccess,  # type: ignore[type-arg]
+            responses={
+                200: {
+                    "description": "Authorization URL created",
+                    "content": {
+                        "application/json": {
+                            "example": {
+                                "status": "ok",
+                                "data": {"auth_url": "https://auth.atlassian.com/authorize?...",
+                                         "state": "eyJhbGciOiJI..."},
+                                "meta": {},
+                            }
+                        }
+                    },
+                }
+            },
+        )
         async def oauth_login(connector_id: str, tenant_id: str = Depends(get_tenant_id), redirect_to: Optional[str] = None):
             factory = self.get_factory(connector_id)
             connector = factory(tenant_id)
             resp = await connector.oauth_login(redirect_to=redirect_to)
             return ok(resp.model_dump())
 
-        @router.get("/{connector_id}/oauth/callback", summary="OAuth callback", description="Complete OAuth flow and store credentials")
+        @router.get(
+            "/{connector_id}/oauth/callback",
+            summary="OAuth callback",
+            description="Complete OAuth flow and store credentials",
+            response_model=ConnectDisconnectSuccess,  # type: ignore[type-arg]
+            responses={
+                200: {"description": "OAuth completed", "content": {"application/json": {"example": {"status": "ok", "data": {"message": "OAuth linked"}, "meta": {}}}}},
+                400: {"description": "Validation error"},
+            },
+        )
         async def oauth_callback(connector_id: str, code: str, state: Optional[str] = None, tenant_id: str = Depends(get_tenant_id)):
             if not code:
                 return validation_error("Missing OAuth code")
@@ -157,6 +215,21 @@ class ConnectorRegistry:
             "/{connector_id}/search",
             summary="Search",
             description="Search data in the connector with pagination and filtering",
+            response_model=GenericItemsSuccess,  # type: ignore[type-arg]
+            responses={
+                200: {
+                    "description": "Search results",
+                    "content": {
+                        "application/json": {
+                            "example": {
+                                "status": "ok",
+                                "data": {"items": [{"id": "123", "title": "Example"}], "paging": {"page": 1, "per_page": 10, "total": 1, "next_page": None, "prev_page": None}},
+                                "meta": {},
+                            }
+                        }
+                    },
+                }
+            },
         )
         async def search(
             connector_id: str,
@@ -191,13 +264,25 @@ class ConnectorRegistry:
             observe_latency("search_latency_ms_sum", _elapsed_ms)
             return res
 
-        @router.post("/{connector_id}/connect", summary="Connect", description="Connect using stored credentials (stub)")
+        @router.post(
+            "/{connector_id}/connect",
+            summary="Connect",
+            description="Connect using stored credentials (stub)",
+            response_model=ConnectDisconnectSuccess,  # type: ignore[type-arg]
+            responses={200: {"description": "Connected status"}, 401: {"description": "Unauthorized"}},
+        )
         async def connect(connector_id: str, tenant_id: str = Depends(get_tenant_id)):
             factory = self.get_factory(connector_id)
             connector = factory(tenant_id)
             return await connector.connect()
 
-        @router.post("/{connector_id}/disconnect", summary="Disconnect", description="Disconnect and remove credentials (stub)")
+        @router.post(
+            "/{connector_id}/disconnect",
+            summary="Disconnect",
+            description="Disconnect and remove credentials (stub)",
+            response_model=ConnectDisconnectSuccess,  # type: ignore[type-arg]
+            responses={200: {"description": "Disconnected"}},
+        )
         async def disconnect(connector_id: str, tenant_id: str = Depends(get_tenant_id)):
             factory = self.get_factory(connector_id)
             connector = factory(tenant_id)
