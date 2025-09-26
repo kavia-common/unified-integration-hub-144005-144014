@@ -4,7 +4,19 @@ import uvicorn
 
 # PUBLIC_INTERFACE
 def main():
-    """Entry point to start the FastAPI server with environment-based configuration."""
+    """Entry point to start the FastAPI server with environment-based configuration.
+
+    Notes:
+    - Binds to HOST:PORT where HOST defaults to 0.0.0.0 and PORT defaults to 3001.
+    - Reads environment variables from a local .env if present:
+        HOST, PORT, LOG_LEVEL, RELOAD
+    - Signals: start.sh uses `exec python -m app.server` so SIGINT/SIGTERM are
+      delivered to the uvicorn process, enabling graceful shutdown.
+    - Troubleshooting:
+        * If startup fails with "address already in use", either free the port or set PORT to a different value.
+        * Verify required deps: fastapi, uvicorn, pydantic, python-dotenv.
+        * You can run `uvicorn app.asgi:app --host 0.0.0.0 --port 3001` directly to isolate uvicorn issues.
+    """
     # Load environment variables from .env if present (no hardcoding of secrets)
     load_dotenv()
 
