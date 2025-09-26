@@ -2,10 +2,11 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, HttpUrl
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 import base64
 import http.client
 from urllib.parse import urlparse
+import os
 
 # In-memory storage for credentials (placeholder for future DB)
 _INTEGRATION_STORE: Dict[str, Dict[str, str]] = {}
@@ -13,7 +14,10 @@ _INTEGRATION_STORE: Dict[str, Dict[str, str]] = {}
 # Initialize FastAPI app with metadata for docs
 app = FastAPI(
     title="Unified Connector Backend",
-    description="API backend that handles integration logic with JIRA, Confluence, and manages connector configurations.",
+    description=(
+        "API backend that handles integration logic with JIRA, Confluence, and manages connector configurations. "
+        "Includes health endpoints and integration configuration/testing for development."
+    ),
     version="0.1.0",
     openapi_tags=[
         {"name": "health", "description": "Health and readiness endpoints"},
@@ -23,9 +27,12 @@ app = FastAPI(
 )
 
 # Enable CORS for frontend requests; origins can be refined via env later
+_allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "").strip()
+allowed_origins: List[str] = ["*"] if not _allowed_origins_env else [o.strip() for o in _allowed_origins_env.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, restrict to NEXT_PUBLIC_API_URL origin
+    allow_origins=allowed_origins,  # In production, restrict via ALLOWED_ORIGINS env
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -113,6 +120,13 @@ def _test_atlassian_basic(base_url: str, username: str, api_token: str, service:
     except Exception as e:
         return False, f"Connection error: {e}"
 
+@app.on_event("startup")
+async def _on_startup() -> None:
+    """Log a message on startup to help diagnose readiness issues."""
+    host = os.getenv("HOST", "0.0.0.0")
+    port = os.getenv("PORT", "3001")
+    print(f"[main] FastAPI app startup complete. Listening on {host}:{port}")
+
 @app.get("/", tags=["root"], summary="Root", description="Root endpoint to verify API is running.")
 def read_root():
     """Return a simple greeting to confirm the API is live."""
@@ -122,6 +136,18 @@ def read_root():
 def health():
     """Return liveness status for health checks."""
     return HealthResponse(status="ok")
+
+# PUBLIC_INTERFACE
+@app.get(
+    "/docs-status",
+    tags=["health"],
+    summary="Docs readiness",
+    description="Returns a minimal status to confirm OpenAPI schema is available and app is responsive.",
+    responses={200: {"description": "Docs status OK"}}
+)
+def docs_status():
+    """Simple endpoint to validate documentation readiness without opening Swagger UI."""
+    return {"ok": True}
 
 # PUBLIC_INTERFACE
 @app.post(

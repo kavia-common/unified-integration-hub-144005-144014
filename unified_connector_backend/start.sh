@@ -4,6 +4,14 @@
 # Ensures the FastAPI app runs on 0.0.0.0:3001 by default so orchestrators detect readiness.
 set -euo pipefail
 
+# Load .env if present to avoid hardcoding and to respect environment configuration
+if [ -f ".env" ]; then
+  # shellcheck disable=SC1091
+  set -a
+  . ./.env
+  set +a
+fi
+
 export HOST="${HOST:-0.0.0.0}"
 export PORT="${PORT:-3001}"
 export LOG_LEVEL="${LOG_LEVEL:-info}"
