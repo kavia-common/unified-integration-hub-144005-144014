@@ -1,0 +1,3 @@
+# Delegating requirements for accidental runs inside app/ directory.
+# This includes the backend root requirements.
+-r ../requirements.txt

@@ -1,0 +1,4 @@
+# Delegating requirements file for CI convenience.
+# Many CI scripts run `pip install -r requirements.txt` from the repo root.
+# This file includes the backend requirements so those scripts keep working.
+-r unified_connector_backend/requirements.txt
