@@ -14,6 +14,8 @@ import sys
 from dotenv import load_dotenv
 import uvicorn
 
+print('Hello Hi 3!')
+
 # Import the FastAPI app from app.main and expose it at module level for ASGI servers.
 try:
     from app.main import app  # noqa: F401
