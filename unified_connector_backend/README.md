@@ -41,6 +41,33 @@ Container/preview entrypoint
 - `GET /` -> `{ "message": "Unified Connector Backend is running." }`
 - `GET /health` -> `{ "status": "ok" }`
 
+## New Integration Endpoints
+
+- `POST /api/integrations/jira`
+- `POST /api/integrations/confluence`
+
+Body:
+```json
+{
+  "baseUrl": "https://your-domain.atlassian.net",
+  "email_or_username": "you@example.com",
+  "apiToken": "atlassian_api_token"
+}
+```
+
+Behavior:
+- Credentials are stored in-memory (for development). Do not use this in production without secure storage and encryption.
+- The server performs a basic authentication check against the vendor API and returns:
+  - 200: `{ "success": true, "message": "Connection successful." }`
+  - 400: `{ "detail": "<reason>" }`
+
+## CORS
+
+CORS is enabled for all origins by default for development. In production, restrict origins by setting an environment variable and updating the middleware:
+
+- Suggested env var: `ALLOWED_ORIGINS` (comma-separated list), not currently required.
+- Frontend should call these endpoints from the configured backend URL.
+
 ## Environment Variables
 
 - `PORT` (default: 3001)
