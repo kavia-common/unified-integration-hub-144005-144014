@@ -1,3 +1,4 @@
+print('Hello Hi 1!')
 import os
 from dotenv import load_dotenv
 import uvicorn
