@@ -1,4 +1,0 @@
-{
-  "working_directory": "/home/kavia/workspace/code-generation/unified_connector_backend",
-  "command": "python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt && uvicorn app.server:app"
-}

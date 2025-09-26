@@ -2,8 +2,8 @@
 """
 Unified Connector Backend application package.
 
-This package contains:
-- main: FastAPI app instance with health endpoints
+This package contains (compatibility layer):
+- main: FastAPI app instance imported from src/unified_connector_backend.app
 - asgi: ASGI entrypoint exposing `app` for uvicorn/gunicorn
 - server: Python module runner to start uvicorn with environment configuration
 """

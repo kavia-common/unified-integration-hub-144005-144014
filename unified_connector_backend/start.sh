@@ -1,17 +1,15 @@
 #!/usr/bin/env bash
-# PUBLIC_INTERFACE
-# Start script for Unified Connector Backend.
-# Ensures the FastAPI app runs on 0.0.0.0:3001 by default so orchestrators detect readiness.
+# Simple start script for local/dev environments.
+# Usage:
+#   bash start.sh
+# Ensures .env is loaded (if present) and runs uvicorn using the app.server module.
+
 set -euo pipefail
 
-# Always run from the directory where this script resides so that 'app' package is importable.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "${SCRIPT_DIR}"
-
-# Load .env if present to avoid hardcoding and to respect environment configuration
 if [ -f ".env" ]; then
-  # shellcheck disable=SC1091
+  # load .env without exporting comments
   set -a
+  # shellcheck disable=SC1091
   . ./.env
   set +a
 fi
@@ -19,15 +17,7 @@ fi
 export HOST="${HOST:-0.0.0.0}"
 export PORT="${PORT:-3001}"
 export LOG_LEVEL="${LOG_LEVEL:-info}"
-# RELOAD may be set externally; default to false for containerized runs
 export RELOAD="${RELOAD:-false}"
 
-# Expose PYTHONPATH explicitly to include current directory, aiding module import resolution in CI/container envs.
-export PYTHONPATH="${PYTHONPATH:-${SCRIPT_DIR}}"
-
-echo "[start.sh] Working directory: $(pwd)"
-echo "[start.sh] HOST=${HOST} PORT=${PORT} RELOAD=${RELOAD} LOG_LEVEL=${LOG_LEVEL}"
-echo "[start.sh] PYTHONPATH=${PYTHONPATH}"
-echo "[start.sh] Launching Python module runner: python -m app.server"
-# Use the Python module runner which internally calls uvicorn with the configured app and loads .env
-exec python -m app.server
+echo "[start] Starting Unified Connector Backend on ${HOST}:${PORT} (reload=${RELOAD}, log_level=${LOG_LEVEL})"
+python -m app.server

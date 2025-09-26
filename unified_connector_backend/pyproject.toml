@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "unified-connector-backend"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi==0.111.0",
+    "uvicorn[standard]==0.30.1",
+    "pydantic==2.8.2",
+    "python-dotenv==1.0.1",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"unified_connector_backend" = ["**/*.py"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.uvicorn]
+app = "unified_connector_backend.app:app"
+host = "0.0.0.0"
+port = 3001
+log_level = "info"
+reload = false

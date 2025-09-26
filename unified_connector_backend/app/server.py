@@ -14,14 +14,11 @@ import sys
 from dotenv import load_dotenv
 import uvicorn
 
-print('Hello Hi 7!')
-
-# Import the FastAPI app from app.main and expose it at module level for ASGI servers.
+# Import the FastAPI app from src package and expose it at module level for ASGI servers.
 try:
-    from app.main import app  # noqa: F401
+    from unified_connector_backend.app import app  # noqa: F401
 except Exception as import_err:
-    # Provide helpful diagnostics if import fails so container logs show context
-    print(f"[server] Failed to import FastAPI app from app.main: {import_err}")
+    print(f"[server] Failed to import FastAPI app from unified_connector_backend.app: {import_err}")
     print(f"[server] CWD={os.getcwd()} PYTHONPATH={os.environ.get('PYTHONPATH')} sys.path[0:3]={sys.path[0:3]}")
     raise
 
@@ -44,10 +41,8 @@ def main():
     log_level = os.getenv("LOG_LEVEL", "info")
     reload = _bool_env("RELOAD", False)
 
-    # Informative startup print (visible in container logs)
     print(f"[server] Starting Unified Connector Backend on {host}:{port} (reload={reload}, log_level={log_level})")
 
-    # Start uvicorn pointing to the already-imported FastAPI app object
     uvicorn.run(
         app,
         host=host,

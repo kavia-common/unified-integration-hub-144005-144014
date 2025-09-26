@@ -1,1 +1,2 @@
+# If CI starts in the app/ directory, delegate up one level to the backend requirements.
 -r ../requirements.txt
