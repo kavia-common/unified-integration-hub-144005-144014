@@ -8,7 +8,8 @@ from pydantic import BaseModel, Field
 from ..connectors.registry import make_connectors_router, get_connector, get_tenant, TenantContext, list_connectors
 from ..connectors.jira import JiraConnector
 from ..connectors.confluence import ConfluenceConnector
-from ..db.mongo import delete_connection
+from ..db.mongo import delete_connection, upsert_oauth_config
+from ..security.crypto import encrypt_str
 
 # Instantiate and register connectors once.
 JIRA = JiraConnector()
@@ -60,6 +61,12 @@ async def oauth_callback(connector_id: str, code: str = Query(...), state: str =
 class SearchResponse(BaseModel):
     items: List[Dict[str, Any]]
 
+class OAuthConfigPayload(BaseModel):
+    """Payload for saving OAuth client configuration."""
+    client_id: str = Field(..., description="OAuth client ID")
+    client_secret: str = Field(..., description="OAuth client secret")
+    redirect_uri: str = Field(..., description="Registered redirect/callback URI")
+
 # PUBLIC_INTERFACE
 @router.get("/connectors/{connector_id}/search", response_model=SearchResponse, summary="Search", description="Normalized search for resources.")
 async def search(connector_id: str, q: str = Query(..., description="Query string"), resource: str = Query(..., description="Resource type"), page: int = 1, per_page: int = 20, tenant: TenantContext = Depends(get_tenant)):
@@ -96,6 +103,16 @@ async def create_jira_issue(payload: JiraCreateIssue, tenant: TenantContext = De
 # PUBLIC_INTERFACE
 @router.post("/connectors/confluence/pages", summary="Create Confluence page", description="Create a Confluence page with normalized response.")
 async def create_conf_page(payload: ConfluenceCreatePage, tenant: TenantContext = Depends(get_tenant)):
+>>>>>>> REPLACE   
+```
+
+````edit file="unified-integration-hub-144005-144014/unified_connector_backend/app/routers/connectors.py"      
+<<<<<<< SEARCH
+@router.delete("/connectors/{connector_id}/connection", summary="Delete connection", description="Revoke and remove stored credentials for a connector.")
+async def delete_conn(connector_id: str, tenant: TenantContext = Depends(get_tenant)):
+=======
+@router.delete("/connectors/{connector_id}/connection", summary="Delete connection", description="Revoke and remove stored credentials for a connector.")
+async def delete_conn(connector_id: str, tenant: TenantContext = Depends(get_tenant)):
     connector = CONFLUENCE
     try:
         res = await connector.create(tenant.tenant_id, "page", payload.dict())
@@ -128,3 +145,29 @@ async def delete_conn(connector_id: str, tenant: TenantContext = Depends(get_ten
         raise HTTPException(status_code=404, detail="Connector not found")
     await delete_connection(tenant.tenant_id, connector_id)
     return {"status": "ok"}
+
+# PUBLIC_INTERFACE
+@router.post("/connectors/jira/configure", summary="Configure Jira OAuth client", description="Saves Jira OAuth client credentials for the current tenant (encrypted at rest).")
+async def configure_jira(payload: OAuthConfigPayload, tenant: TenantContext = Depends(get_tenant)):
+    try:
+        await upsert_oauth_config(tenant.tenant_id, "jira", {
+            "client_id": payload.client_id,
+            "client_secret": encrypt_str(payload.client_secret),
+            "redirect_uri": payload.redirect_uri,
+        })
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# PUBLIC_INTERFACE
+@router.post("/connectors/confluence/configure", summary="Configure Confluence OAuth client", description="Saves Confluence OAuth client credentials for the current tenant (encrypted at rest).")
+async def configure_confluence(payload: OAuthConfigPayload, tenant: TenantContext = Depends(get_tenant)):
+    try:
+        await upsert_oauth_config(tenant.tenant_id, "confluence", {
+            "client_id": payload.client_id,
+            "client_secret": encrypt_str(payload.client_secret),
+            "redirect_uri": payload.redirect_uri,
+        })
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))

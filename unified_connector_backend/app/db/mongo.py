@@ -25,6 +25,9 @@ def get_db():
 def connections_collection():
     return get_db()["connector_connections"]
 
+def configs_collection():
+    return get_db()["connector_configs"]
+
 async def upsert_connection(tenant_id: str, connector_id: str, credentials: Dict[str, Any], metadata: Optional[Dict[str, Any]] = None):
     doc = {
         "tenant_id": tenant_id,
@@ -47,3 +50,21 @@ async def get_connection(tenant_id: str, connector_id: str) -> Optional[Dict[str
 
 async def delete_connection(tenant_id: str, connector_id: str):
     await connections_collection().delete_one({"tenant_id": tenant_id, "connector_id": connector_id})
+
+async def upsert_oauth_config(tenant_id: str, connector_id: str, config: Dict[str, Any]):
+    doc = {
+        "tenant_id": tenant_id,
+        "connector_id": connector_id,
+        "config": {
+            **config,
+            "updated_at": datetime.utcnow(),
+        }
+    }
+    await configs_collection().update_one(
+        {"tenant_id": tenant_id, "connector_id": connector_id},
+        {"$set": doc},
+        upsert=True
+    )
+
+async def get_oauth_config(tenant_id: str, connector_id: str) -> Optional[Dict[str, Any]]:
+    return await configs_collection().find_one({"tenant_id": tenant_id, "connector_id": connector_id})

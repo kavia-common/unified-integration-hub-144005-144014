@@ -1,26 +1,39 @@
 import os
 import urllib.parse
 from datetime import datetime, timedelta
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 import httpx
 from pydantic import BaseModel, Field
 
 from .base import BaseConnector, OAuthAuthorize, NormalizedItem, CreateResult
-from ..db.mongo import upsert_connection, get_connection
-from ..security.crypto import encrypt_str, decrypt_str
+from ..db.mongo import upsert_connection, get_connection, get_oauth_config
+from ..security.crypto import encrypt_str, decrypt_str, decrypt_str as _dec
 
 JIRA_AUTH_URL = "https://auth.atlassian.com/authorize"
 JIRA_TOKEN_URL = "https://auth.atlassian.com/oauth/token"
 JIRA_API_BASE = "https://api.atlassian.com/ex/jira"
 
-def _client_id():
+async def _get_dynamic_oauth(tenant_id: str) -> Optional[Dict[str, str]]:
+    cfg = await get_oauth_config(tenant_id, "jira")
+    if not cfg or "config" not in cfg:
+        return None
+    cc = cfg["config"]
+    client_id = cc.get("client_id")
+    client_secret_enc = cc.get("client_secret")
+    redirect_uri = cc.get("redirect_uri")
+    client_secret = _dec(client_secret_enc) if client_secret_enc else None
+    if client_id and client_secret and redirect_uri:
+        return {"client_id": client_id, "client_secret": client_secret, "redirect_uri": redirect_uri}
+    return None
+
+def _env_client_id():
     return os.getenv("JIRA_CLIENT_ID", "")
 
-def _client_secret():
+def _env_client_secret():
     return os.getenv("JIRA_CLIENT_SECRET", "")
 
-def _redirect_uri():
+def _env_redirect_uri():
     return os.getenv("JIRA_REDIRECTION_URI", "")
 
 SCOPES = [
@@ -38,12 +51,17 @@ class JiraConnector(BaseConnector):
 
     # PUBLIC_INTERFACE
     async def get_oauth_authorize_url(self, tenant_id: str, state: str) -> OAuthAuthorize:
-        """Compose Atlassian OAuth 2.0 authorize URL."""
+        """Compose Atlassian OAuth 2.0 authorize URL using dynamic tenant config if present."""
+        dyn = await _get_dynamic_oauth(tenant_id)
+        client_id = dyn["client_id"] if dyn else _env_client_id()
+        redirect_uri = dyn["redirect_uri"] if dyn else _env_redirect_uri()
+        if not client_id or not redirect_uri:
+            raise ValueError("OAuth client not configured; please configure client_id and redirect_uri.")
         params = {
             "audience": "api.atlassian.com",
-            "client_id": _client_id(),
+            "client_id": client_id,
             "scope": " ".join(SCOPES),
-            "redirect_uri": _redirect_uri(),
+            "redirect_uri": redirect_uri,
             "state": state,
             "response_type": "code",
             "prompt": "consent",
@@ -54,12 +72,18 @@ class JiraConnector(BaseConnector):
     # PUBLIC_INTERFACE
     async def exchange_code_for_tokens(self, tenant_id: str, code: str, state: str) -> Dict[str, Any]:
         """Exchange auth code for tokens and store credentials in Mongo."""
+        dyn = await _get_dynamic_oauth(tenant_id)
+        client_id = dyn["client_id"] if dyn else _env_client_id()
+        client_secret = dyn["client_secret"] if dyn else _env_client_secret()
+        redirect_uri = dyn["redirect_uri"] if dyn else _env_redirect_uri()
+        if not client_id or not client_secret or not redirect_uri:
+            raise ValueError("OAuth client not configured; please configure client_id, client_secret and redirect_uri.")
         data = {
             "grant_type": "authorization_code",
-            "client_id": _client_id(),
-            "client_secret": _client_secret(),
+            "client_id": client_id,
+            "client_secret": client_secret,
             "code": code,
-            "redirect_uri": _redirect_uri(),
+            "redirect_uri": redirect_uri,
         }
         async with httpx.AsyncClient(timeout=20) as client:
             res = await client.post(JIRA_TOKEN_URL, json=data)
