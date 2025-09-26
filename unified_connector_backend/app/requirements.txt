@@ -1,0 +1,2 @@
+# Delegate to the container-level requirements file
+-r ../requirements.txt
