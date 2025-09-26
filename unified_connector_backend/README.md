@@ -13,6 +13,28 @@ python3 -m venv .venv
 pip install -r requirements.txt
 ```
 
+Troubleshooting: Startup fails or port 3001 not ready
+- Ensure Python dependencies are installed from requirements.txt. A missing FastAPI package will prevent the server from starting.
+- Quick check:
+
+```bash
+python - <<'PY'
+import importlib
+for m in ['fastapi','uvicorn','pydantic','dotenv']:
+    try:
+        importlib.import_module(m)
+        print(m, 'OK')
+    except Exception as e:
+        print(m, 'MISSING', e)
+PY
+```
+
+- If any are missing, run:
+
+```bash
+pip install -r requirements.txt
+```
+
 ## Run locally
 
 Default port is 3001 (configurable via `PORT`).
