@@ -1,11 +1,14 @@
 # PUBLIC_INTERFACE
 # Provide defensive import with explicit error log to aid startup diagnostics.
+import os
+import sys
 try:
     from app.main import app  # noqa: F401
 except Exception as import_err:
     # Printing ensures the error is visible in container logs if import fails.
     # Re-raise so the process exits and orchestrator reports failure explicitly.
     print(f"[asgi] Failed to import FastAPI app from app.main: {import_err}")
+    print(f"[asgi] CWD={os.getcwd()} PYTHONPATH={os.environ.get('PYTHONPATH')} sys.path[0:3]={sys.path[0:3]}")
     raise
 
 """
