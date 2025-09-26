@@ -5,40 +5,26 @@ import uvicorn
 # Load environment variables from .env if present (no hardcoding of secrets)
 load_dotenv()
 
+def _bool_env(name: str, default: bool = False) -> bool:
+    """Parse boolean environment variables safely."""
+    val = os.getenv(name)
+    if val is None:
+        return default
+    return val.strip().lower() in {"1", "true", "yes", "on"}
+
 if __name__ == "__main__":
-    # Respect PORT env if provided by runtime, default to 8000
-    port = int(os.getenv("PORT", "8000"))
+    # Default to container port 3001 to satisfy orchestrator checks
+    port = int(os.getenv("PORT", "3001"))
     host = os.getenv("HOST", "0.0.0.0")
+
+    # Informative startup print (visible in container logs)
+    print(f"Starting Unified Connector Backend on {host}:{port} (reload={_bool_env('RELOAD', False)})")
+
     # Start uvicorn pointing to FastAPI app
-    uvicorn.run("app.main:app", host=host, port=port, reload=os.getenv("RELOAD", "false").lower() == "true")
-```
-
-Explanation: Add a README with instructions for installing dependencies and running the server. This helps CI/preview systems and developers.
-````write file="unified-integration-hub-144005-144014/unified_connector_backend/README.md"
-# Unified Connector Backend
-
-FastAPI backend for Unified Connector Platform.
-
-## Setup
-
-1. Create and populate a `.env` (if needed). Do not commit secrets.
-2. Create a virtual environment and install dependencies:
-
-```bash
-python3 -m venv .venv
-. .venv/bin/activate
-pip install -r requirements.txt
-```
-
-## Run locally
-
-```bash
-python -m app.server
-```
-
-- The server starts at http://localhost:8000
-- API docs: http://localhost:8000/docs
-
-## Health
-
-- `GET /health` -> `{ "status": "ok" }`
+    uvicorn.run(
+        "app.main:app",
+        host=host,
+        port=port,
+        reload=_bool_env("RELOAD", False),
+        log_level=os.getenv("LOG_LEVEL", "info"),
+    )
