@@ -21,9 +21,16 @@ Default port is 3001 (configurable via `PORT`).
 # Option A: module runner (loads .env)
 python -m app.server
 
-# Option B: uvicorn directly
+# Option B: uvicorn directly (explicit)
 uvicorn app.asgi:app --host 0.0.0.0 --port 3001
+
+# Option C: start script (recommended for containers/preview)
+bash start.sh
 ```
+
+Container/preview entrypoint
+- A Procfile is provided: `web: bash start.sh`
+- The start script binds to 0.0.0.0:${PORT:-3001} to satisfy orchestrator health checks.
 
 - The server starts at http://localhost:3001
 - API docs: http://localhost:3001/docs
