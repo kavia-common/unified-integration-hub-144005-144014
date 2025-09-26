@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # PUBLIC_INTERFACE
 # Start script for Unified Connector Backend.
-# Ensures the FastAPI app runs on 0.0.0.0:3001 by default so orchestrators detect readiness.
+# CHANGE NOTE: Default port updated to 3002 (was 3001).
+# Ensures the FastAPI app runs on 0.0.0.0:3002 by default so orchestrators detect readiness.
 set -euo pipefail
 
 # Always run from the directory where this script resides so that 'app' package is importable.
@@ -17,7 +18,7 @@ if [ -f ".env" ]; then
 fi
 
 export HOST="${HOST:-0.0.0.0}"
-export PORT="${PORT:-3001}"
+export PORT="${PORT:-3002}"
 export LOG_LEVEL="${LOG_LEVEL:-info}"
 # RELOAD may be set externally; default to false for containerized runs
 export RELOAD="${RELOAD:-false}"

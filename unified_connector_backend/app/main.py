@@ -124,7 +124,7 @@ def _test_atlassian_basic(base_url: str, username: str, api_token: str, service:
 async def _on_startup() -> None:
     """Log a message on startup to help diagnose readiness issues."""
     host = os.getenv("HOST", "0.0.0.0")
-    port = os.getenv("PORT", "3001")
+    port = os.getenv("PORT", "3002")
     print(f"[main] FastAPI app startup complete. Listening on {host}:{port}")
 
 @app.get("/", tags=["root"], summary="Root", description="Root endpoint to verify API is running.")

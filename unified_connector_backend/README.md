@@ -13,7 +13,7 @@ python3 -m venv .venv
 pip install -r requirements.txt
 ```
 
-Troubleshooting: Startup fails or port 3001 not ready
+Troubleshooting: Startup fails or port 3002 not ready
 - Ensure Python dependencies are installed from requirements.txt. A missing FastAPI package will prevent the server from starting.
 - Quick check:
 
@@ -37,14 +37,14 @@ pip install -r requirements.txt
 
 ## Run locally
 
-Default port is 3001 (configurable via `PORT`).
+Default port is 3002 (configurable via `PORT`).
 
 ```bash
 # Option A: module runner (loads .env)
 python -m app.server
 
 # Option B: uvicorn directly (explicit)
-uvicorn app.asgi:app --host 0.0.0.0 --port 3001
+uvicorn app.asgi:app --host 0.0.0.0 --port 3002
 
 # Option C: start script (recommended for containers/preview)
 bash start.sh
@@ -52,11 +52,14 @@ bash start.sh
 
 Container/preview entrypoint
 - A Procfile is provided: `web: bash start.sh`
-- The start script binds to 0.0.0.0:${PORT:-3001} to satisfy orchestrator health checks.
+- The start script binds to 0.0.0.0:${PORT:-3002} to satisfy orchestrator health checks.
 
-- The server starts at http://localhost:3001
-- API docs: http://localhost:3001/docs
-- OpenAPI JSON: http://localhost:3001/openapi.json
+- The server starts at http://localhost:3002
+- API docs: http://localhost:3002/docs
+- OpenAPI JSON: http://localhost:3002/openapi.json
+
+CHANGE NOTE:
+- The backend default port has been updated from 3001 to 3002. Override via environment variable `PORT` as needed.
 
 ## Health
 
@@ -92,7 +95,7 @@ CORS is enabled for all origins by default for development. In production, restr
 
 ## Environment Variables
 
-- `PORT` (default: 3001)
+- `PORT` (default: 3002)
 - `HOST` (default: 0.0.0.0)
 - `RELOAD` (default: false)
 - `LOG_LEVEL` (default: info)
