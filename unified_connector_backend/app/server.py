@@ -21,7 +21,7 @@ def main():
     Default port updated from 3001 to 3002 to align with project configuration. Override via environment variable PORT if needed.
     """
     # Print requested message on server start
-    print("Hello Hi 1!")
+    print("Hello Hi 2!")
     # Load environment variables from .env if present (no hardcoding of secrets)
     load_dotenv()
 
