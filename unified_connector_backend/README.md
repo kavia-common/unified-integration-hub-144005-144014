@@ -1,6 +1,43 @@
 # Unified Connector Backend
 
-FastAPI backend for Unified Connector Platform.
+FastAPI backend for a modular connectors platform with tenant isolation, unified APIs, and ephemeral credential storage.
+
+Key features:
+- Modular connectors with a registry (Jira, Confluence included).
+- Thread-safe in-memory token/connection store.
+- Optional AES-GCM encryption for stored credentials via ENCRYPTION_KEY.
+- Unified response envelopes and stable error codes.
+- Tenant isolation via X-Tenant-Id header.
+- Structured logging (no secrets are logged).
+- Basic unit and integration tests.
+
+## Project Structure
+
+app/
+- api/
+  - models.py
+  - routes/
+    - connectors.py
+    - connections.py
+- connectors/
+  - base.py
+  - registry.py
+  - jira.py
+  - confluence.py
+- core/
+  - settings.py
+  - security.py
+  - token_store.py
+  - tenancy.py
+  - errors.py
+  - logging.py
+  - retry.py
+- asgi.py
+- main.py
+- server.py
+tests/
+- test_registry_and_mapping.py
+- test_oauth_callback.py
 
 ## Setup
 
@@ -28,49 +65,59 @@ uvicorn app.asgi:app --host 0.0.0.0 --port 3001
 bash start.sh
 ```
 
-Container/preview entrypoint
-- A Procfile is provided: `web: bash start.sh`
-- The start script binds to 0.0.0.0:${PORT:-3001} to satisfy orchestrator health checks.
-
 - The server starts at http://localhost:3001
 - API docs: http://localhost:3001/docs
 - OpenAPI JSON: http://localhost:3001/openapi.json
 
 ## Health
 
-- `GET /` -> `{ "message": "Unified Connector Backend is running." }`
-- `GET /health` -> `{ "status": "ok" }`
+- GET / -> `{ "message": "Unified Connector Backend is running." }`
+- GET /health -> `{ "status": "ok" }`
 
-## New Integration Endpoints
+## Unified API (selected)
 
-- `POST /api/integrations/jira`
-- `POST /api/integrations/confluence`
+Headers: `X-Tenant-Id: <tenant>`
 
-Body:
+- GET /api/connectors
+- GET /api/connectors/{id}/oauth/login
+- GET /api/connectors/{id}/oauth/callback?code=...&state=...
+- POST /api/connectors/{id}/pat/validate
+- GET /api/connectors/{id}/search?q=...&resource=issue|page&page=1&per_page=20
+- POST /api/connectors/jira/issues
+- POST /api/connectors/confluence/pages
+- GET /api/connectors/jira/projects
+- GET /api/connectors/confluence/spaces
+- DELETE /api/connectors/{id}/connection
+- GET /api/connections
+
+All responses use unified envelopes:
 ```json
-{
-  "baseUrl": "https://your-domain.atlassian.net",
-  "email_or_username": "you@example.com",
-  "apiToken": "atlassian_api_token"
-}
+{ "status": "ok", "data": { ... } }
+```
+Errors:
+```json
+{ "status": "error", "code": "VALIDATION", "message": "..." }
 ```
 
-Behavior:
-- Credentials are stored in-memory (for development). Do not use this in production without secure storage and encryption.
-- The server performs a basic authentication check against the vendor API and returns:
-  - 200: `{ "success": true, "message": "Connection successful." }`
-  - 400: `{ "detail": "<reason>" }`
+## Security & Storage
 
-## CORS
-
-CORS is enabled for all origins by default for development. In production, restrict origins by setting an environment variable and updating the middleware:
-
-- Suggested env var: `ALLOWED_ORIGINS` (comma-separated list), not currently required.
-- Frontend should call these endpoints from the configured backend URL.
+- All credentials are stored in-memory only, per-tenant, never persisted.
+- Optional encryption at rest (in memory) via AES-GCM if `ENCRYPTION_KEY` is set.
+- No secrets are logged; logs are structured JSON.
 
 ## Environment Variables
 
-- `PORT` (default: 3001)
-- `HOST` (default: 0.0.0.0)
-- `RELOAD` (default: false)
-- `LOG_LEVEL` (default: info)
+See `.env.example` for full list. Common:
+- PORT (default: 3001)
+- HOST (default: 0.0.0.0)
+- LOG_LEVEL (default: info)
+- ALLOWED_ORIGINS (default: *)
+- ENCRYPTION_KEY (optional; enables AES-GCM encryption)
+- JIRA_CLIENT_ID / JIRA_CLIENT_SECRET / JIRA_REDIRECTION_URI (optional demo)
+- CONFLUENCE_CLIENT_ID / CONFLUENCE_CLIENT_SECRET / CONFLUENCE_REDIRECTION_URI (optional demo)
+
+## Limitations
+
+- Vendor calls are mocked for the demo; replace with real client integrations.
+- Tokens are ephemeral and cleared on process restart.
+- No database connections present by design for this demo.
