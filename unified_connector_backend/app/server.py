@@ -37,6 +37,9 @@ def main():
 
     # Informative startup print (visible in container logs)
     print(f"[server] Starting Unified Connector Backend on {host}:{port} (reload={reload}, log_level={log_level})")
+    if port == 3001:
+        # Extra diagnostic to help detect platform/preview misconfiguration expecting different port
+        print("[server][WARN] PORT resolved to 3001. If your platform expects 3002, set PORT=3002 or update preview/deploy health checks.")
 
     # Start uvicorn pointing to FastAPI app
     uvicorn.run(

@@ -35,6 +35,15 @@ PY
 pip install -r requirements.txt
 ```
 
+Port/health check mismatch (3001 vs 3002)
+- The backend honors the PORT environment variable. Default is 3002 if PORT is not set.
+- Some preview/deploy platforms inject PORT=3001 by default. In that case, the server will bind to 3001.
+- If your orchestrator health check expects the service on 3002 while PORT=3001, startup checks will fail.
+- Resolution options:
+  1) Set PORT=3002 in the platform/container environment, or
+  2) Update the platform’s health check and port mapping to point at PORT (e.g., 3001 if injected by platform).
+- For diagnostics, start.sh and server.py emit a [WARN] line if PORT resolves to 3001.
+
 ## Run locally
 
 Default port is 3002 (configurable via `PORT`).
