@@ -13,7 +13,7 @@ python3 -m venv .venv
 pip install -r requirements.txt
 ```
 
-Troubleshooting: Startup fails or port 3002 not ready
+Troubleshooting: Startup fails or port not ready
 - Ensure Python dependencies are installed from requirements.txt. A missing FastAPI package will prevent the server from starting.
 - Quick check:
 
@@ -37,12 +37,15 @@ pip install -r requirements.txt
 
 Port/health check mismatch (3001 vs 3002)
 - The backend honors the PORT environment variable. Default is 3002 if PORT is not set.
-- Some preview/deploy platforms inject PORT=3001 by default. In that case, the server will bind to 3001.
-- If your orchestrator health check expects the service on 3002 while PORT=3001, startup checks will fail.
-- Resolution options:
-  1) Set PORT=3002 in the platform/container environment, or
-  2) Update the platform’s health check and port mapping to point at PORT (e.g., 3001 if injected by platform).
-- For diagnostics, start.sh and server.py emit a [WARN] line if PORT resolves to 3001.
+- Many preview/deploy platforms inject PORT (often PORT=3001). In that case, the server will bind to that injected value.
+- If your orchestrator or preview health check expects the service on 3002 while PORT=3001, it will appear as "backend failed to start" even though it is running on 3001.
+- Resolution options (choose one):
+  1) Set PORT=3002 in the platform/container environment so the server binds to 3002.
+  2) Update the platform’s health check and port mapping to use the injected PORT value (e.g., 3001).
+  3) If the platform requires a specific port, remove conflicting overrides and let the platform-provided PORT take precedence.
+- Diagnostics:
+  - start.sh and server.py will log the resolved HOST and PORT at startup.
+  - If PORT resolves to 3001 a [WARN] line is printed to highlight possible health check mismatches.
 
 ## Run locally
 
@@ -104,7 +107,9 @@ CORS is enabled for all origins by default for development. In production, restr
 
 ## Environment Variables
 
-- `PORT` (default: 3002)
+- `PORT` (default: 3002) — The app binds to this port. If your platform injects `PORT`, that value will be used.
 - `HOST` (default: 0.0.0.0)
 - `RELOAD` (default: false)
 - `LOG_LEVEL` (default: info)
+- `ALLOWED_ORIGINS` (optional, comma-separated) — for CORS. Leave empty in development to allow all origins.
+- See `.env.example` for a sample configuration. Do not commit secrets.
