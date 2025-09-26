@@ -22,10 +22,12 @@ export LOG_LEVEL="${LOG_LEVEL:-info}"
 # RELOAD may be set externally; default to false for containerized runs
 export RELOAD="${RELOAD:-false}"
 
-# Expose PYTHONPATH explicitly to include current directory, aiding uvicorn import resolution in some CI environments.
+# Expose PYTHONPATH explicitly to include current directory, aiding module import resolution in CI/container envs.
 export PYTHONPATH="${PYTHONPATH:-${SCRIPT_DIR}}"
 
 echo "[start.sh] Working directory: $(pwd)"
+echo "[start.sh] HOST=${HOST} PORT=${PORT} RELOAD=${RELOAD} LOG_LEVEL=${LOG_LEVEL}"
 echo "[start.sh] PYTHONPATH=${PYTHONPATH}"
-echo "[start.sh] Launching uvicorn app.asgi:app on ${HOST}:${PORT} (reload=${RELOAD}, log_level=${LOG_LEVEL})"
-exec uvicorn app.asgi:app --host "${HOST}" --port "${PORT}" --log-level "${LOG_LEVEL}"
+echo "[start.sh] Launching Python module runner: python -m app.server"
+# Use the Python module runner which internally calls uvicorn with the configured app and loads .env
+exec python -m app.server

@@ -14,11 +14,12 @@ except Exception as import_err:
 """
 ASGI application entrypoint.
 
-This exposes `app` for ASGI servers like uvicorn or gunicorn to import directly:
+This exposes `app` for ASGI servers like uvicorn or gunicorn to import directly, binding to the configured host/port:
     uvicorn app.asgi:app --host 0.0.0.0 --port 3001
 
 Notes:
 - The FastAPI application defines:
   - GET /          -> simple root message
   - GET /health    -> readiness/liveness probe returning {"status":"ok"}
+- If startup fails, logs printed here include CWD and PYTHONPATH to diagnose import resolution issues.
 """
