@@ -11,12 +11,14 @@ class HealthResponse(BaseModel):
 
 
 @router.get("/", tags=["root"], summary="Root", description="Root endpoint to verify API is running.")
+# PUBLIC_INTERFACE
 def read_root():
     """Return a simple greeting to confirm the API is live."""
     return {"message": "Unified Connector Backend is running."}
 
 
 @router.get("/health", response_model=HealthResponse, tags=["health"], summary="Liveness probe", description="Simple liveness check endpoint.")
+# PUBLIC_INTERFACE
 def health():
     """Return liveness status for health checks."""
     return HealthResponse(status="ok")

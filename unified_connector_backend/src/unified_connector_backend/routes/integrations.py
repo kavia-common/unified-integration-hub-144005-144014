@@ -54,6 +54,7 @@ Returns 200 on success with a message, or 400 on failure with details.
         400: {"description": "Jira connection failed"},
     },
 )
+# PUBLIC_INTERFACE
 def configure_jira(payload: IntegrationConfigRequest):
     """Configure Jira credentials and attempt a test API call to validate authentication."""
     ok, msg = test_atlassian_basic(str(payload.baseUrl), payload.email_or_username, payload.apiToken, service="jira")
@@ -82,6 +83,7 @@ Returns 200 on success with a message, or 400 on failure with details.
         400: {"description": "Confluence connection failed"},
     },
 )
+# PUBLIC_INTERFACE
 def configure_confluence(payload: IntegrationConfigRequest):
     """Configure Confluence credentials and attempt a test API call to validate authentication."""
     ok, msg = test_atlassian_basic(str(payload.baseUrl), payload.email_or_username, payload.apiToken, service="confluence")

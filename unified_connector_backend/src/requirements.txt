@@ -1,0 +1,2 @@
+# Delegates to backend requirements to support installs from src/ working directory
+-r ../requirements.txt

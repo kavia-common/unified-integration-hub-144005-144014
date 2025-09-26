@@ -1,0 +1,2 @@
+# Delegates to backend requirements to support installs when CWD is src/unified_connector_backend/routes/
+-r ../../requirements.txt

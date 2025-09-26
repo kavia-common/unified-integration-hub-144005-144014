@@ -1,0 +1,2 @@
+# Delegates to backend requirements to support installs when CWD is interfaces/
+-r ../requirements.txt
